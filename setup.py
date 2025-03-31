@@ -4,7 +4,7 @@ with open('requirements.txt', 'r') as f:
     required = f.read().splitlines()
 
 setup(
-    name='STEER',
+    name='steer',
     version='1.0.0',
     packages=find_packages(),
     include_package_data=True,

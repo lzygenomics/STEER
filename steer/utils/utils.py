@@ -22,7 +22,7 @@ from scipy.sparse import issparse
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy.stats import spearmanr, pearsonr
 #sys.path.append('/HOME/scz3472/run/GATVelo/GATVelo_project/')
-from plot import velocity_graph
+from ..plot import velocity_graph
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.backends.cudnn as cudnn
