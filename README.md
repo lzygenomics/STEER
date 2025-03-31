@@ -2,19 +2,6 @@
 
 STEER is a deep learning framework that leverages spatial-temporal gene expression information and graph attention mechanisms to perform interpretable RNA velocity inference. It supports a variety of modules for training, visualization, prior construction, and utilities tailored to single-cell dynamics.
 
----
-
-## 🧬 System Requirements (for full functionality)
-
-Some features of STEER require R and the `mclust` package.  
-We recommend installing them via conda:
-
-```bash
-conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
-```
-
----
-
 
 ## 🚀 INSTALL
 
