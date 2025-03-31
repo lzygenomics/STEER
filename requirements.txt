@@ -9,7 +9,7 @@ rpy2==3.5.11
 scanpy==1.10.2
 scikit_learn==1.4.2
 scipy==1.13.1
-scvelo==0.3.4
+scvelo==0.3.3
 seaborn==0.13.2
 torch==2.4.0
 torch_geometric==2.5.3
