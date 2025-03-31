@@ -15,17 +15,32 @@ conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
 
 ---
 
+
 ## 🚀 INSTALL
 
-You can install STEER directly from GitHub:
+We **highly recommend** using a virtual environment (e.g., conda) with Python 3.9+.
+
+### 🔧 Step-by-step GPU Setup (CUDA 12.4 + PyTorch 2.4)
 
 ```bash
+
+# 0. Some features of STEER require R and the `mclust` package, we recommend installing them via conda:
+conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
+
+# 1. Install PyTorch with CUDA 12.4 support
+pip install torch==2.4.0+cu124 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+
+# 2. Install PyG core libraries compatible with PyTorch 2.4.0 + CUDA 12.4
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
+pip install torch-sparse -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
+pip install torch-geometric
+
+# 3. Install STEER from GitHub
 pip install git+https://github.com/lzygenomics/STEER.git
 ```
 
-> Make sure you are using Python 3.9+, and have pip installed in your environment.
-
 ---
+
 
 ## 📦 USAGE
 
