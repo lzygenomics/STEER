@@ -29,17 +29,38 @@ pip install git+https://github.com/lzygenomics/STEER.git
 ---
 
 
-## 📦 USAGE
+## 📦 Example Usage
 
 After installation, you can import STEER and use its modules like:
 
 ```python
-from STEER import model_training_share_neighbor_adata, preprocess, embedding_plot
+import steer
 
-# Example usage:
-adata = preprocess(raw_adata)
-model_training_share_neighbor_adata(adata)
-embedding_plot(adata)
+# Input and Clean data, adata is the prepared anndata format with unsplice and splice
+df, adjacency_matrix, adata = steer.preprocess_anndata(adata,npc=30,NUM_AD_NEIGH = 30)
+# Prepare data for model
+dataset = steer.preload_datasets_all_genes_anndata(df = df, MODEL_MODE = 'pretrain', adata = adata)
+# Construct PyG Data object
+pyg_data = steer.create_pyg_data(dataset, adjacency_matrix, normalize = True)
+
+#----- Pre-Train Phase for Celluar context learning -----#
+result_adata = steer.model_training_share_neighbor_adata(device = 'cuda:0', 
+                                                device2 = 'cuda:1',
+                                                pyg_data = pyg_data, 
+                                                MODEL_MODE = 'pretrain', 
+                                                adata = adata, 
+                                                NUM_LOSS_NEIGH = 30, 
+                                                max_n_cluster = num_cluster,
+                                                path = RESULT_PATH)
+# Cluster cells based on Pre-Train embedding
+result_adata = steer.mclust_R(result_adata, num_cluster=num_cluster)
+# Plot predicted clusters and previous cell type annotation
+sc.pl.embedding(result_adata, basis = 'umap', color=['pred_cluster', 'celltype'], show=False, save = '_NumClus_'+str(num_cluster)+'.svg')
+sc.pl.embedding(result_adata, basis = 'X_umap_pre_embed', color=['pred_cluster','celltype'], show=False, save = '_NumClus_'+str(num_cluster)+'.svg')
+# Save Pre-Train results and release GPU memory
+result_adata.write(RESULT_PATH+ 'Num_'+str(num_cluster)+'_pretrain_adata.h5ad')
+df.to_csv(RESULT_PATH+'Num_' +str(num_cluster) + '_pretrain_df.csv')
+torch.cuda.empty_cache()
 ```
 
 ---
