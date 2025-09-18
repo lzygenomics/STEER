@@ -24,6 +24,8 @@ pip install torch-geometric
 
 # 3. Install STEER from GitHub
 pip install git+https://github.com/lzygenomics/STEER.git
+
+This step describes the approach the author used to configure the environment at the time. It is provided as a reference, and the specified package versions are not strict requirements. As long as the key packages are installed in a compatible manner, newer versions may also be used.
 ```
 
 ---
