@@ -28,6 +28,16 @@ pip install git+https://github.com/lzygenomics/STEER.git
 This step describes the approach the author used to configure the environment at the time. It is provided as a reference, and the specified package versions are not strict requirements. As long as the key packages are installed in a compatible manner, newer versions may also be used.
 ```
 
+### New Version CUDA test(L20 GPU+CUDA 12.8+PyTorch 2.8+Python 3.10)
+```bash
+
+conda create -n steer python=3.10
+conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
+pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+
+```
+
+
 ---
 
 
