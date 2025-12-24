@@ -5,7 +5,7 @@ with open('requirements.txt', 'r') as f:
 
 setup(
     name='steer',
-    version='1.0.0',
+    version='1.5.0',
     packages=find_packages(),
     include_package_data=True,
     description='STEER: Spatial-Temporal Explainable Expert model for RNA velocity inference',
@@ -15,6 +15,7 @@ setup(
     install_requires=required,
     classifiers=[
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10'
         'Operating System :: OS Independent',
         'License :: OSI Approved :: MIT License',  # 根据实际情况选择许可证
         'Topic :: Scientific/Engineering :: Artificial Intelligence',

@@ -1,8 +1,7 @@
+import copy
 import torch
 import pandas as pd
 from torch import nn, Tensor
-from torch.utils.data import DataLoader
-from torch_geometric.utils import to_dense_adj
 from torch.nn import functional as F
 from torch.nn import Parameter
 from typing import Union, Tuple, Optional
@@ -10,17 +9,13 @@ from torch_sparse import SparseTensor, set_diag
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import (OptPairTensor, Adj, Size, NoneType,
                                     OptTensor)
-from torch_geometric.utils import remove_self_loops, add_self_loops, softmax, to_torch_coo_tensor
-from torch_geometric.loader import DataLoader as GDataLoader, ClusterData, ClusterLoader
-import numpy as np
-from torch_scatter import scatter, scatter_max, scatter_mean
+from torch_geometric.utils import remove_self_loops, add_self_loops, softmax
+from torch_scatter import scatter_max
 import scanpy as sc
-from torch_geometric.nn.dense import dense_mincut_pool
-from sklearn.preprocessing import OneHotEncoder
-import torch.backends.cudnn as cudnn
-cudnn.deterministic = True
-cudnn.benchmark = True  # Set to False for full determinism
-
+# cudnn.deterministic = True
+# cudnn.benchmark = True
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 class TimePredictionNetwork(nn.Module):
     def __init__(self, input_dim):
@@ -325,53 +320,6 @@ class GATModel(nn.Module):
         
         return recon, z, t, c_softmax, cp, up_type_features
 
-
-# class ExpertWrapper(nn.Module):
-#     def __init__(self, out_features, num_clusters, num_genes, type_features = None, use_experts=True):
-#         super(ExpertWrapper, self).__init__()
-        
-#         # Learnable cluster-latent matrix
-#         self.L_1 = nn.Parameter(torch.empty(out_features, num_clusters))
-#         nn.init.xavier_normal_(self.L_1)
-
-#         # Initialize expert networks only if use_experts is True
-#         self.use_experts = use_experts
-#         if use_experts:
-#             self.init_experts(out_features, num_clusters, num_genes)
-               
-#         # Time prediction network
-#         self.time_prediction_network = TimePredictionNetwork(out_features)
-
-#         self.up_regulation = RegulationModel(type_features, num_clusters)
-
-#     def init_experts(self, out_features, num_clusters, num_genes):
-#         self.experts = nn.ModuleList([ExpertModel(out_features, 3 * num_genes) for _ in range(num_clusters)])
-
-#     def compute_cluster_matrix(self, z):
-#         c = torch.matmul(z, self.L_1)
-#         return c
-
-#     def compute_cell_params(self, c, z, t, num_genes):
-#         if self.use_experts:
-#             expert_outputs = torch.stack([expert(z, t) for expert in self.experts], dim=1)
-#             weights = c.unsqueeze(-1).expand(-1, -1, expert_outputs.size(-1))
-#             weighted_outputs = expert_outputs * weights
-#             summed_outputs = torch.sum(weighted_outputs, dim=1)
-#             return summed_outputs
-#         else:
-#             # Return a placeholder or default value if experts are not used
-#             return torch.zeros(z.size(0), 3 * num_genes).to(z.device)
-
-#     def forward(self, z, use_initial_regulation=True):
-#         c_softmax = F.softmax(self.compute_cluster_matrix(z), dim=-1)  # Softmax to get cluster assignments  
-#         # Predict time point
-#         t = self.time_prediction_network(z)
-#         # Compute cell parameters including time point
-#         cp = self.compute_cell_params(c_softmax, z, t, self.num_genes)
-#         up_type_features = self.up_regulation(c_softmax, use_initial=use_initial_regulation)
-        
-#         return t, c_softmax, cp, up_type_features
-
 def mincut_loss(adj, c):
     k = c.size(-1)
     #c = F.gumbel_softmax(c, tau=tau,hard=True, dim = -1)
@@ -496,11 +444,11 @@ def pearson_loss(u_cluster, t_cluster, epsilon=1e-8):
     
     # Compute covariance and variance directly
     covariance = (u_mean * t_mean).sum(dim=0)
-    u_variance = (u_mean ** 2).sum(dim=0) + epsilon
-    t_variance = (t_mean ** 2).sum(dim=0) + epsilon
+    u_variance = (u_mean ** 2).sum(dim=0) 
+    t_variance = (t_mean ** 2).sum(dim=0)
     
     # Compute the Pearson correlation for each gene without using sqrt
-    pearson_correlation = covariance / (torch.sqrt(u_variance * t_variance) + epsilon)
+    pearson_correlation = covariance / (torch.sqrt(u_variance * t_variance + epsilon))
     
     return pearson_correlation
 
@@ -943,13 +891,18 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     pyg_data.splice = pyg_data.x[:,adata.n_vars:]
 
     # Define optimizers
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.9)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.9)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=50, T_mult=2, eta_min=1e-5
+    )
     # Early stopping parameters
     early_stopping_patience = 1000 # 1000 before
     min_loss_improvement = 0.001
     best_loss = float('inf')
     patience_counter = 0
+    best_model_state = None  # 用来暂存最佳参数
     # Training loop
     # num_epochs = 10000
     # pretrain_epochs = 1500
@@ -1049,12 +1002,13 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             if current_loss < best_loss - min_loss_improvement:
                 best_loss = current_loss
                 patience_counter = 0  # Reset patience counter on improvement
+                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             else:
                 patience_counter += 1  # Increment patience counter if no improvement
             
             # Check for early stopping condition
             if patience_counter > early_stopping_patience:
-                print(f"Early stopping triggered at epoch {epoch} (patience counter: {patience_counter})")
+                print(f"Early stopping triggered at epoch {epoch}. Best loss was {best_loss}")
                 break  # Exit the training loop
 
         if epoch % log_interval == 0:
@@ -1063,6 +1017,12 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
                 print(f"GATE: {GATE_loss}, Cluster: {cluster_loss}, Velo: {velo_loss}, Time_cor: {time_cor}, Time_smooth: {temp_smooth_loss}")
             elif epoch > pretrain_epochs + cluster_epochs:
                 print(f"GATE: {GATE_loss}, Cluster: {cluster_loss}, Time_cor: {time_cor}, Time_smooth: {temp_smooth_loss}")
+    
+    # === 训练结束后，一定要加载回来 ===
+    if best_model_state is not None:
+        print("Loading best model state from memory...")
+        model.load_state_dict(best_model_state)
+    # 此时 model 变回了 Loss 最低时的状态，用这个去 eval 才是最好的！
     
     # # Save the final model including the scheduler state
     # torch.save({
@@ -1149,326 +1109,6 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     # Return the DataFrame for the current gene
     return adata
 
-
-# Function to train and evaluate for each gene
-def model_training_share_neighbor_adata_batch(device, device2, pyg_data, MODEL_MODE, adata, NUM_LOSS_NEIGH, max_n_cluster, corr_mode = 'u', path = '/HOME/scz3472/run/GATVelo/', mask_train = False, batch_col = 'sequencing.batch', prior_time = None, order = None):
-    if MODEL_MODE == 'pretrain':
-        use_experts = False
-    else:
-        use_experts = True
-
-    if prior_time is not None:
-        adata.obs[prior_time] = pd.Categorical(adata.obs[prior_time], categories=order, ordered=True)
-        # Convert to PyTorch tensor if necessary
-        numeric_stage_tensor = torch.tensor(adata.obs[prior_time].cat.codes.values, dtype=torch.float32, device = device)
-
-    # Set random seed inside the function
-    SEED = 618
-    torch.manual_seed(SEED)
-    # Prepare data
-    pyg_data = pyg_data.to(device)
-    # Assuming `adata.obs['batch']` contains the batch labels
-    batch_labels = adata.obs[batch_col].values.reshape(-1, 1)
-    encoder = OneHotEncoder(sparse=False)
-    batch_one_hot = encoder.fit_transform(batch_labels)
-    batch_one_hot = torch.tensor(batch_one_hot, dtype=torch.float, device = device)
-    # Initialize the GATE model
-    model = GATModel(
-        in_features=pyg_data.x.shape[1] + batch_one_hot.shape[1],
-        hid_features=512,
-        out_features=128,
-        num_clusters=max_n_cluster,
-        num_genes=adata.n_vars,
-        type_features=pyg_data.type_features,
-        use_experts=use_experts
-    ).to(device)
-    pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
-    pyg_data.splice = pyg_data.x[:,adata.n_vars:]
-    combined_features = torch.cat((pyg_data.x, batch_one_hot),dim = -1)
-
-    # Define optimizers
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.9)
-    # Early stopping parameters
-    early_stopping_patience = 1000 # 1000 before
-    min_loss_improvement = 0.001
-    best_loss = float('inf')
-    patience_counter = 0
-    # Training loop
-    num_epochs = 10000
-    pretrain_epochs = 1500
-    cluster_epochs = 1500
-    time_epochs = 200 # 1000 before
-    warm_up_epochs = 200 #1000 before
-    log_interval = 50
-    # update_interval = 50 # Update adj matrix for mincut loss
-    inner_adj = None
-    freeze_done = False
-    model.train()
-
-    if MODEL_MODE == 'pretrain':
-        MAX_EPOCH = pretrain_epochs + cluster_epochs
-    else:
-        MAX_EPOCH = num_epochs
-    
-
-    for epoch in range(MAX_EPOCH):
-        optimizer.zero_grad()
-
-        if epoch < pretrain_epochs:
-            # Phase 1: Just train the GATE
-            if mask_train:
-                mask = generate_mask(pyg_data.x, 0.15)
-                x_unmasked = pyg_data.x * (1 - mask)
-                combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            else:
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            loss = GATE_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-            optimizer.step()
-        elif epoch <= pretrain_epochs + cluster_epochs:
-            # Phase 2: Train the GATE and MinCUT
-            if mask_train:
-                mask = generate_mask(pyg_data.x, 0.1)
-                x_unmasked = pyg_data.x * (1 - mask)
-                combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            else:
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            loss = GATE_loss + cluster_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-            optimizer.step()
-        elif epoch <= pretrain_epochs + cluster_epochs + time_epochs:
-            # Phase 3: Train the time
-            if mask_train:
-                mask = generate_mask(pyg_data.x, 0.1)
-                x_unmasked = pyg_data.x * (1 - mask)
-                combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            else:
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            _, time_cor, temp_smooth_loss = post_loss_share_prior_time(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = False, corr_mode = corr_mode, prior_time = numeric_stage_tensor)
-            loss = GATE_loss + cluster_loss + time_cor + temp_smooth_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-            optimizer.step()
-        elif epoch <= pretrain_epochs + cluster_epochs + time_epochs + warm_up_epochs:
-            # Phase 4: Train the velocity(warm up)
-            if mask_train:
-                mask = generate_mask(pyg_data.x, 0.1)
-                x_unmasked = pyg_data.x * (1 - mask)
-                combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            else:
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            velo_loss, time_cor, temp_smooth_loss = post_loss_share_prior_time(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = False, corr_mode = corr_mode, prior_time = numeric_stage_tensor)
-            loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-            optimizer.step()
-        else:
-            # Phase 5: Train the velocity
-            if mask_train:
-                mask = generate_mask(pyg_data.x, 0.1)
-                x_unmasked = pyg_data.x * (1 - mask)
-                combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            else:
-                recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-                GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            velo_loss, time_cor, temp_smooth_loss = post_loss_share_prior_time(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = False, corr_mode = corr_mode, prior_time = numeric_stage_tensor)
-            loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-            optimizer.step()
-            scheduler.step()
-            current_loss = loss.item()
-            if current_loss < best_loss - min_loss_improvement:
-                best_loss = current_loss
-                patience_counter = 0  # Reset patience counter on improvement
-            else:
-                patience_counter += 1  # Increment patience counter if no improvement
-            
-            # Check for early stopping condition
-            if patience_counter > early_stopping_patience:
-                print(f"Early stopping triggered at epoch {epoch} (patience counter: {patience_counter})")
-                break  # Exit the training loop
-
-        if epoch % log_interval == 0:
-            print(f"Epoch {epoch}, Loss {loss.item()}")
-            if epoch > pretrain_epochs + cluster_epochs + time_epochs:
-                print(f"GATE: {GATE_loss}, Cluster: {cluster_loss}, Velo: {velo_loss}, Time_cor: {time_cor}, Time_smooth: {temp_smooth_loss}")
-            elif epoch > pretrain_epochs + cluster_epochs:
-                print(f"GATE: {GATE_loss}, Cluster: {cluster_loss}, Time_cor: {time_cor}, Time_smooth: {temp_smooth_loss}")
-    
-    # Save the final model including the scheduler state
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'loss': loss,
-    }, path + 'GATEVelo_check_point.pth')
-
-    with torch.no_grad():
-        model.eval()  # Set the model to evaluation mode
-        num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-        recon = recon[:,:-batch_one_hot.shape[1]]# Identify the cluster with the highest probability for each cell
-        cluster = torch.argmax(c_softmax, dim=1)
-        weight = torch.max(c_softmax, dim=1).values
-
-        # Reshape cp to (num_cells, num_genes, 3)
-        cp_reshaped = cp.view(recon.shape[0], num_genes, 3)
-        alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
-
-        # Convert tensors to numpy for further processing/storage
-        orig = pyg_data.x.cpu().numpy()
-        recon = recon.cpu().numpy()
-        cluster = cluster.cpu().numpy()
-        weight = weight.cpu().numpy()
-        # cell_ids = cell_ids.cpu().numpy()
-        # Assuming cell_ids can be either a tensor or a numpy array
-        cell_ids = pyg_data.cell_ids.cpu().numpy() if isinstance(pyg_data.cell_ids, torch.Tensor) else pyg_data.cell_ids
-
-        z_numpy = z.cpu().numpy()
-        t = t.cpu().numpy()
-        up_type_features = up_type_features.cpu().numpy()
-
-        if MODEL_MODE == 'pretrain':
-            # Add the results
-            adata.layers['recon_u'] = recon[:,:adata.n_vars]
-            adata.layers['recon_s'] = recon[:,adata.n_vars:]
-            adata.layers['scale_Mu'] = orig[:,:adata.n_vars]
-            adata.layers['scale_Ms'] = orig[:,adata.n_vars:]
-            adata.layers['pred_cell_type'] = up_type_features
-            adata.obs['pred_cluster'] = cluster
-            adata.obs['pred_clus_weight'] = weight
-            adata.obsm['X_pre_embed'] = z_numpy
-            adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors', copy = True)
-            adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
-            adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
-        else:
-            # Add the results
-            adata.layers['recon_u_refine'] = recon[:,:adata.n_vars]
-            adata.layers['recon_s_refine'] = recon[:,adata.n_vars:]
-            adata.layers['scale_Mu_refine'] = orig[:,:adata.n_vars]
-            adata.layers['scale_Ms_refine'] = orig[:,adata.n_vars:]
-            adata.layers['pred_cell_type_refine'] = up_type_features
-            adata.layers['recon_alpha'], adata.layers['recon_beta'], adata.layers['recon_gamma'] = alpha.cpu().numpy(), beta.cpu().numpy(), gamma.cpu().numpy()
-            adata.layers['pred_vu'] = adata.layers['recon_alpha'] - adata.layers['recon_beta'] * adata.layers['scale_Mu_refine']
-            adata.layers['pred_vs'] = adata.layers['recon_beta'] * adata.layers['scale_Mu_refine'] - adata.layers['recon_gamma'] * adata.layers['scale_Ms_refine']
-            adata.obs['pred_cluster_refine'] = cluster
-            adata.obs['pred_clus_weight_refine'] = weight
-            adata.obs['pred_time'] = t
-            adata.obsm['X_refine_embed'] = z_numpy
-            adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors', copy = True)
-            adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
-            adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
-
-    # Return the DataFrame for the current gene
-    return adata
-
-# def inductive_learn(device, adata, pyg_data, max_n_cluster, path):
-#     # Set random seed inside the function
-#     SEED = 618
-#     torch.manual_seed(SEED)
-#     # Prepare data
-#     pyg_data = pyg_data.to(device)
-#     pyg_data.x[torch.isnan(pyg_data.x)] = 0
-#     # Initialize the GATE model
-#     model = GATModel(
-#         in_features=pyg_data.x.shape[1],
-#         hid_features=512,
-#         out_features=128,
-#         num_clusters=max_n_cluster,
-#         num_genes=adata.n_vars,
-#         type_features=pyg_data.type_features,
-#         use_experts=True
-#     ).to(device)
-#     pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
-#     pyg_data.splice = pyg_data.x[:,adata.n_vars:]
-
-#     checkpoint = torch.load(path + 'GATEVelo_check_point.pth')
-#     # Filter out the 'up_regulation.type_features' parameter from the state dictionary
-#     state_dict = checkpoint['model_state_dict']
-#     state_dict = {k: v for k, v in state_dict.items() if 'up_regulation.type_features' not in k and 'up_regulation.learnable_matrix' not in k}
-
-#     model.load_state_dict(state_dict,strict=False)
-
-#     with torch.no_grad():
-#         model.eval()  # Set the model to evaluation mode
-#         num_genes = adata.n_vars
-#         recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
-#         # Identify the cluster with the highest probability for each cell
-#         cluster = torch.argmax(c_softmax, dim=1)
-#         weight = torch.max(c_softmax, dim=1).values
-
-#         # Reshape cp to (num_cells, num_genes, 3)
-#         cp_reshaped = cp.view(recon.shape[0], num_genes, 3)
-#         alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
-
-#         # Convert tensors to numpy for further processing/storage
-#         orig = pyg_data.x.cpu().numpy()
-#         recon = recon.cpu().numpy()
-#         cluster = cluster.cpu().numpy()
-#         weight = weight.cpu().numpy()
-#         # cell_ids = cell_ids.cpu().numpy()
-#         # Assuming cell_ids can be either a tensor or a numpy array
-#         cell_ids = pyg_data.cell_ids.cpu().numpy() if isinstance(pyg_data.cell_ids, torch.Tensor) else pyg_data.cell_ids
-
-#         z_numpy = z.cpu().numpy()
-#         t = t.cpu().numpy()
-#         up_type_features = up_type_features.cpu().numpy()
-
-#         # Add the results
-#         adata.layers['recon_u_refine'] = recon[:,:adata.n_vars]
-#         adata.layers['recon_s_refine'] = recon[:,adata.n_vars:]
-#         adata.layers['scale_Mu_refine'] = orig[:,:adata.n_vars]
-#         adata.layers['scale_Ms_refine'] = orig[:,adata.n_vars:]
-#         adata.layers['pred_cell_type_refine'] = up_type_features
-#         adata.layers['recon_alpha'], adata.layers['recon_beta'], adata.layers['recon_gamma'] = alpha.cpu().numpy(), beta.cpu().numpy(), gamma.cpu().numpy()
-#         adata.layers['pred_vu'] = adata.layers['recon_alpha'] - adata.layers['recon_beta'] * adata.layers['scale_Mu_refine']
-#         adata.layers['pred_vs'] = adata.layers['recon_beta'] * adata.layers['scale_Mu_refine'] - adata.layers['recon_gamma'] * adata.layers['scale_Ms_refine']
-#         adata.obs['pred_cluster_refine'] = cluster
-#         adata.obs['pred_clus_weight_refine'] = weight
-#         adata.obs['pred_time'] = t
-#         adata.obsm['X_refine_embed'] = z_numpy
-#         adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-#         # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-#         # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-#         sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-#         # Calculate UMAP based on the new neighbors and store it in a new slot
-#         temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors', copy = True)
-#         adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-#         del temp_adata
-#         adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
-#     return adata
-
 def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 512, latent_size = 128):
     # Set random seed inside the function
     SEED = 618
@@ -1527,89 +1167,6 @@ def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 
         adata.layers['scale_Mu_refine'] = orig[:,:adata.n_vars]
         adata.layers['scale_Ms_refine'] = orig[:,adata.n_vars:]
         # adata.layers['pred_cell_type_refine'] = up_type_features
-        adata.layers['recon_alpha'], adata.layers['recon_beta'], adata.layers['recon_gamma'] = alpha.cpu().numpy(), beta.cpu().numpy(), gamma.cpu().numpy()
-        adata.layers['pred_vu'] = adata.layers['recon_alpha'] - adata.layers['recon_beta'] * adata.layers['scale_Mu_refine']
-        adata.layers['pred_vs'] = adata.layers['recon_beta'] * adata.layers['scale_Mu_refine'] - adata.layers['recon_gamma'] * adata.layers['scale_Ms_refine']
-        adata.obs['pred_cluster_refine'] = cluster
-        adata.obs['pred_clus_weight_refine'] = weight
-        adata.obs['pred_time'] = t
-        adata.obsm['X_refine_embed'] = z_numpy
-        adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-        # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-        # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-        sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-        # Calculate UMAP based on the new neighbors and store it in a new slot
-        temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors', copy = True)
-        adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-        del temp_adata
-        adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
-    return adata
-
-def inductive_learn_batch(device, adata, pyg_data, max_n_cluster, path, batch_col):
-    # Set random seed inside the function
-    SEED = 618
-    torch.manual_seed(SEED)
-    # Prepare data
-    pyg_data = pyg_data.to(device)
-    pyg_data.x[torch.isnan(pyg_data.x)] = 0
-    # Assuming `adata.obs['batch']` contains the batch labels
-    batch_labels = adata.obs[batch_col].values.reshape(-1, 1)
-    encoder = OneHotEncoder(sparse=False)
-    batch_one_hot = encoder.fit_transform(batch_labels)
-    batch_one_hot = torch.tensor(batch_one_hot, dtype=torch.float, device = device)
-    # Initialize the GATE model
-    model = GATModel(
-        in_features=pyg_data.x.shape[1] + batch_one_hot.shape[1],
-        hid_features=512,
-        out_features=128,
-        num_clusters=max_n_cluster,
-        num_genes=adata.n_vars,
-        type_features=pyg_data.type_features,
-        use_experts=True
-    ).to(device)
-    pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
-    pyg_data.splice = pyg_data.x[:,adata.n_vars:]
-    combined_features = torch.cat((pyg_data.x, batch_one_hot),dim = -1)
-
-    checkpoint = torch.load(path + 'GATEVelo_check_point.pth')
-    # Filter out the 'up_regulation.type_features' parameter from the state dictionary
-    state_dict = checkpoint['model_state_dict']
-    state_dict = {k: v for k, v in state_dict.items() if 'up_regulation.type_features' not in k}
-
-    model.load_state_dict(state_dict,strict=False)
-
-    with torch.no_grad():
-        model.eval()  # Set the model to evaluation mode
-        num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-        recon = recon[:,:-batch_one_hot.shape[1]]
-        # Identify the cluster with the highest probability for each cell
-        cluster = torch.argmax(c_softmax, dim=1)
-        weight = torch.max(c_softmax, dim=1).values
-
-        # Reshape cp to (num_cells, num_genes, 3)
-        cp_reshaped = cp.view(recon.shape[0], num_genes, 3)
-        alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
-
-        # Convert tensors to numpy for further processing/storage
-        orig = pyg_data.x.cpu().numpy()
-        recon = recon.cpu().numpy()
-        cluster = cluster.cpu().numpy()
-        weight = weight.cpu().numpy()
-        # cell_ids = cell_ids.cpu().numpy()
-        # Assuming cell_ids can be either a tensor or a numpy array
-        cell_ids = pyg_data.cell_ids.cpu().numpy() if isinstance(pyg_data.cell_ids, torch.Tensor) else pyg_data.cell_ids
-
-        z_numpy = z.cpu().numpy()
-        t = t.cpu().numpy()
-        up_type_features = up_type_features.cpu().numpy()
-
-        # Add the results
-        adata.layers['recon_u_refine'] = recon[:,:adata.n_vars]
-        adata.layers['recon_s_refine'] = recon[:,adata.n_vars:]
-        adata.layers['scale_Mu_refine'] = orig[:,:adata.n_vars]
-        adata.layers['scale_Ms_refine'] = orig[:,adata.n_vars:]
-        adata.layers['pred_cell_type_refine'] = up_type_features
         adata.layers['recon_alpha'], adata.layers['recon_beta'], adata.layers['recon_gamma'] = alpha.cpu().numpy(), beta.cpu().numpy(), gamma.cpu().numpy()
         adata.layers['pred_vu'] = adata.layers['recon_alpha'] - adata.layers['recon_beta'] * adata.layers['scale_Mu_refine']
         adata.layers['pred_vs'] = adata.layers['recon_beta'] * adata.layers['scale_Mu_refine'] - adata.layers['recon_gamma'] * adata.layers['scale_Ms_refine']
@@ -1920,111 +1477,3 @@ def pretrain_mclust(device, pyg_data, adata, NUM_LOSS_NEIGH, max_n_cluster, mask
 
     # Return the DataFrame for the current gene
     return adata
-
-
-# Function to train and evaluate for each gene
-def pretrain_mclust_batch(device, pyg_data, adata, NUM_LOSS_NEIGH, max_n_cluster, batch_col, mask_train = False):
-
-    # Set random seed inside the function
-    SEED = 618
-    torch.manual_seed(SEED)
-    # Prepare data
-    pyg_data = pyg_data.to(device)
-    # Assuming `adata.obs['batch']` contains the batch labels
-    batch_labels = adata.obs[batch_col].values.reshape(-1, 1)
-    encoder = OneHotEncoder(sparse=False)
-    batch_one_hot = encoder.fit_transform(batch_labels)
-    batch_one_hot = torch.tensor(batch_one_hot, dtype=torch.float, device = device)
-
-    # Initialize the GATE model
-    model = GATModel(
-        in_features=pyg_data.x.shape[1] + batch_one_hot.shape[1],
-        hid_features=512,
-        out_features=128,
-        num_clusters=max_n_cluster,
-        num_genes=adata.n_vars,
-        type_features=pyg_data.type_features,
-        use_experts=False
-    ).to(device)
-    pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
-    pyg_data.splice = pyg_data.x[:,adata.n_vars:]
-    combined_features = torch.cat((pyg_data.x, batch_one_hot),dim = -1)
-
-    # Define optimizers
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-
-    # Training loop
-    MAX_EPOCH = 3000
-
-    log_interval = 50
-    model.train()
-    
-    for epoch in range(MAX_EPOCH):
-        optimizer.zero_grad()
-
-        # Phase 1: Just train the GATE
-        if mask_train:
-            mask = generate_mask(pyg_data.x, 0.15)
-            x_unmasked = pyg_data.x * (1 - mask)
-            combined_features = torch.cat((x_unmasked, batch_one_hot),dim = -1)
-            recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-            GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-        else:
-            recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=True)
-            GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon[:,:-batch_one_hot.shape[1]], z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-        loss = GATE_loss
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
-        optimizer.step()
-
-        if epoch % log_interval == 0:
-            print(f"Epoch {epoch}, Loss {loss.item()}")
-
-    with torch.no_grad():
-        model.eval()  # Set the model to evaluation mode
-        num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(combined_features, pyg_data.edge_index, use_initial_regulation=False)
-        recon = recon[:,:-batch_one_hot.shape[1]]
-        # Identify the cluster with the highest probability for each cell
-        cluster = torch.argmax(c_softmax, dim=1)
-        weight = torch.max(c_softmax, dim=1).values
-
-        # Reshape cp to (num_cells, num_genes, 3)
-        cp_reshaped = cp.view(recon.shape[0], num_genes, 3)
-        alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
-
-        # Convert tensors to numpy for further processing/storage
-        orig = pyg_data.x.cpu().numpy()
-        recon = recon.cpu().numpy()
-        cluster = cluster.cpu().numpy()
-        weight = weight.cpu().numpy()
-        # cell_ids = cell_ids.cpu().numpy()
-        # Assuming cell_ids can be either a tensor or a numpy array
-        cell_ids = pyg_data.cell_ids.cpu().numpy() if isinstance(pyg_data.cell_ids, torch.Tensor) else pyg_data.cell_ids
-
-        z_numpy = z.cpu().numpy()
-        t = t.cpu().numpy()
-        up_type_features = up_type_features.cpu().numpy()
-
-        # Add the results
-        adata.layers['recon_u'] = recon[:,:adata.n_vars]
-        adata.layers['recon_s'] = recon[:,adata.n_vars:]
-        adata.layers['scale_Mu'] = orig[:,:adata.n_vars]
-        adata.layers['scale_Ms'] = orig[:,adata.n_vars:]
-        adata.layers['pred_cell_type'] = up_type_features
-        adata.obs['pred_cluster'] = cluster
-        adata.obs['pred_clus_weight'] = weight
-        adata.obsm['X_pre_embed'] = z_numpy
-        adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-        # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-        # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-        sc.pp.neighbors(adata, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-        # Calculate UMAP based on the new neighbors and store it in a new slot
-        temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors', copy = True)
-        adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-        del temp_adata
-        adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
-
-    # Return the DataFrame for the current gene
-    return adata
-

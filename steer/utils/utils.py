@@ -26,8 +26,10 @@ from ..plot import velocity_graph
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.backends.cudnn as cudnn
-cudnn.deterministic = True
-cudnn.benchmark = True
+# cudnn.deterministic = True
+# cudnn.benchmark = True
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 def df_to_adata(df, concatenate=False):
     # Pivot the DataFrame to create matrices for spliced and unspliced counts
@@ -373,7 +375,6 @@ def preprocess_anndata(adata, npc = 30, NUM_AD_NEIGH = 30, SMOOTH_NEIGH = 100, u
     # Normalize u and s
     df['unsplice'] = df.groupby('gene_name')['unsplice'].transform(lambda x: x / x.max() if x.max() != 0 else x)
     df['splice'] = df.groupby('gene_name')['splice'].transform(lambda x: x / x.max() if x.max() != 0 else x)
-
     
     return df, adjacency_matrix, adata
 
