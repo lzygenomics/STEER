@@ -5,7 +5,7 @@ with open('requirements.txt', 'r') as f:
 
 setup(
     name='steer',
-    version='1.5.0',
+    version='2.0.0',
     packages=find_packages(),
     include_package_data=True,
     description='STEER: Spatial-Temporal Explainable Expert model for RNA velocity inference',

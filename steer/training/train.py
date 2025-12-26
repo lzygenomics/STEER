@@ -509,18 +509,20 @@ def correlation_loss_vec(t, type_features, unspliced, cluster_vector):
     type_features = type_features.float()
 
     # Determine the number of clusters from the cluster_vector
-    num_clusters = torch.unique(cluster_vector).numel()
+    # num_clusters = torch.unique(cluster_vector).numel()
+    unique_clusters = torch.unique(cluster_vector)
 
     # Expand t to match the shape of type_features
     t_expanded = t.expand(-1, num_genes)
-
-    for cluster in range(num_clusters):
+    valid_clusters = 0
+    # for cluster in range(num_clusters):
+    for cluster in unique_clusters: # 直接遍历存在的 ID
         cluster_mask = (cluster_vector == cluster)
         num_cells_in_cluster = cluster_mask.sum().item()
 
         if num_cells_in_cluster < 2:  # Skip clusters with fewer than 2 cells
             continue
-
+        valid_clusters += 1
         # Extract the regulation values for the current cluster
         regulation_values = type_features[cluster_mask, :]
 
@@ -543,7 +545,10 @@ def correlation_loss_vec(t, type_features, unspliced, cluster_vector):
         # weighted_corr_loss_up = cos_sim_up_modified * reg_up_values.abs()
         # total_loss += torch.sum(weighted_corr_loss_up) # apply mean along genes
 
-    total_loss /= num_clusters
+    if valid_clusters > 0:
+        total_loss = total_loss / valid_clusters
+    else:
+        total_loss = torch.tensor(0.0, device=type_features.device)
     return total_loss
 
 
@@ -745,33 +750,85 @@ def velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_feat
 
     return velo_loss
 
-def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only = False, corr_mode = 'u', cos_batch = 500):
+# def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only = False, corr_mode = 'u', cos_batch = 500):
 
-    if time_only:
-        # Velo loss
-        velo_loss = 0
-        # Time cor loss
-        time_cor = correlation_loss_vec(t, up_type_features, pyg_data.unsplice, pyg_data.pre_clus_vec)
+#     if time_only:
+#         # Velo loss
+#         velo_loss = 0
+#         # Time cor loss
+#         time_cor = correlation_loss_vec(t, up_type_features, pyg_data.unsplice, pyg_data.pre_clus_vec)
+#     else:
+#         # velo loss
+#         pyg_data = get_mask_t_share(t, pyg_data)
+#         if device2 != t.device:
+#             velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
+#         else:
+#             velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up)
+#         # cor constrain loss
+#         # cons_loss = F.mse_loss(up_type_features, pyg_data.type_features/up_type_features.shape[1])
+#         # Time cor loss
+#         if corr_mode == 'u':
+#             time_cor = correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax)
+#             time_cor = time_cor# + cons_loss
+#         elif corr_mode == 's':
+#             time_cor = correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
+#             time_cor = time_cor# + cons_loss
+#         elif corr_mode == 'all':
+#             time_cor = 0.5 * correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax) + 0.5 * correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
+#             time_cor = time_cor# + cons_loss
+#     # Time Smooth loss
+#     temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
+
+#     return velo_loss, time_cor, temp_smooth_loss
+
+# 修改后 (增加 fine_cluster_vec 参数)
+def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only=False, corr_mode='u', cos_batch=500, fine_cluster_vec=None):
+    # 1. 处理 Time Correlation Loss
+    # 逻辑：只要有细聚类 (fine_cluster_vec)，就用细类算 Correlation；否则用 Experts (c_softmax)
+    if fine_cluster_vec is not None:
+        # === 方案 A: 使用细聚类 (硬分类) ===
+        if corr_mode == 'u':
+            time_cor = correlation_loss_vec(t, up_type_features, pyg_data.unsplice, fine_cluster_vec)
+        elif corr_mode == 's':
+            time_cor = correlation_loss_vec(t, up_type_features, pyg_data.splice, fine_cluster_vec)
+        elif corr_mode == 'all':
+            time_cor = 0.5 * correlation_loss_vec(t, up_type_features, pyg_data.unsplice, fine_cluster_vec) + \
+                       0.5 * correlation_loss_vec(t, up_type_features, pyg_data.splice, fine_cluster_vec)
     else:
-        # velo loss
+        # === 方案 B: 使用 Experts (软分类 argmax) ===
+        # 注意：Time Only 阶段原来用的是 pyg_data.pre_clus_vec，这里要做个兼容
+        target_cluster = pyg_data.pre_clus_vec if time_only else c_softmax
+        
+        if time_only:
+            # Time Only 阶段传进来的是向量 (pre_clus_vec)
+            if corr_mode == 'u':
+                time_cor = correlation_loss_vec(t, up_type_features, pyg_data.unsplice, target_cluster)
+            elif corr_mode == 's':
+                time_cor = correlation_loss_vec(t, up_type_features, pyg_data.splice, target_cluster)
+            elif corr_mode == 'all':
+                time_cor = 0.5 * correlation_loss_vec(t, up_type_features, pyg_data.unsplice, target_cluster) + \
+                        0.5 * correlation_loss_vec(t, up_type_features, pyg_data.splice, target_cluster)
+        else:
+            # 正常训练阶段传进来的是矩阵 (c_softmax)
+            if corr_mode == 'u':
+                time_cor = correlation_loss(t, up_type_features, pyg_data.unsplice, target_cluster)
+            elif corr_mode == 's':
+                time_cor = correlation_loss(t, up_type_features, pyg_data.splice, target_cluster)
+            elif corr_mode == 'all':
+                time_cor = 0.5 * correlation_loss(t, up_type_features, pyg_data.unsplice, target_cluster) + \
+                        0.5 * correlation_loss(t, up_type_features, pyg_data.splice, target_cluster)
+    
+    # 2. 处理 Velocity Loss
+    if time_only:
+        velo_loss = 0
+    else:
         pyg_data = get_mask_t_share(t, pyg_data)
         if device2 != t.device:
             velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
         else:
             velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up)
-        # cor constrain loss
-        # cons_loss = F.mse_loss(up_type_features, pyg_data.type_features/up_type_features.shape[1])
-        # Time cor loss
-        if corr_mode == 'u':
-            time_cor = correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax)
-            time_cor = time_cor# + cons_loss
-        elif corr_mode == 's':
-            time_cor = correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
-            time_cor = time_cor# + cons_loss
-        elif corr_mode == 'all':
-            time_cor = 0.5 * correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax) + 0.5 * correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
-            time_cor = time_cor# + cons_loss
-    # Time Smooth loss
+
+    # Time Smooth loss (不变)
     temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
 
     return velo_loss, time_cor, temp_smooth_loss
@@ -806,30 +863,30 @@ def prior_time_loss(t, prior_time):
     correlation = covariance / (std_pred * std_prior)
     return 1 - correlation
 
-def post_loss_share_prior_time(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only = False, corr_mode = 'u', prior_time = None):
+# def post_loss_share_prior_time(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only = False, corr_mode = 'u', prior_time = None):
 
-    # Time loss
-    if corr_mode == 'u':
-        time_cor = correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax)
-    elif corr_mode == 's':
-        time_cor = correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
-    elif corr_mode == 'all':
-        time_cor = 0.5 * correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax) + 0.5 * correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
-    temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
+#     # Time loss
+#     if corr_mode == 'u':
+#         time_cor = correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax)
+#     elif corr_mode == 's':
+#         time_cor = correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
+#     elif corr_mode == 'all':
+#         time_cor = 0.5 * correlation_loss(t, up_type_features, pyg_data.unsplice, c_softmax) + 0.5 * correlation_loss(t, up_type_features, pyg_data.splice, c_softmax)
+#     temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
     
-    if prior_time is not None:
-        time_cor = 0.5 * time_cor + 0.5 * prior_time_loss(t, prior_time)
+#     if prior_time is not None:
+#         time_cor = 0.5 * time_cor + 0.5 * prior_time_loss(t, prior_time)
 
-    if time_only:
-        velo_loss = 0
-    else:
-        pyg_data = get_mask_t_share(t, pyg_data)
-        if device2 != time_cor.device:
-            velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
-        else:
-            velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up)
+#     if time_only:
+#         velo_loss = 0
+#     else:
+#         pyg_data = get_mask_t_share(t, pyg_data)
+#         if device2 != time_cor.device:
+#             velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
+#         else:
+#             velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up)
 
-    return velo_loss, time_cor, temp_smooth_loss
+#     return velo_loss, time_cor, temp_smooth_loss
 
 
 def post_loss_gene(gene_adj, device, device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only = False, corr_mode = 'u', cos_batch = 500):
@@ -877,6 +934,11 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
         pyg_data.pre_clus_vec = torch.tensor(adata.obs['pred_cluster'].values, dtype=torch.long, device = device)
     # Prepare data
     pyg_data = pyg_data.to(device)
+    # 【优化】在循环外提取细聚类向量 (Fine Cluster Vector)
+    # 这样避免了在每个 epoch 里重复查找属性
+    fine_clus_vec = getattr(pyg_data, 'fine_clus_vec', None)
+    if fine_clus_vec is not None:
+        print("Using Fine Cluster Vector for Correlation Loss.")
     # Initialize the GATE model
     model = GATModel(
         in_features=pyg_data.x.shape[1],
@@ -920,10 +982,9 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     else:
         MAX_EPOCH = num_epochs
     
-
     for epoch in range(MAX_EPOCH):
         optimizer.zero_grad()
-
+        
         if epoch < pretrain_epochs:
             # Phase 1: Just train the GATE
             if mask_train:
@@ -962,7 +1023,13 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             else:
                 recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            _, time_cor, temp_smooth_loss = post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = True, time_only = True, corr_mode = corr_mode)
+            
+            _, time_cor, temp_smooth_loss = post_loss_share(
+                device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
+                n_neighbors=NUM_LOSS_NEIGH, warm_up=True, time_only=True, 
+                corr_mode=corr_mode, 
+                fine_cluster_vec=fine_clus_vec  # <--- Use Fine Cluster
+            )
             loss = GATE_loss + cluster_loss + time_cor + temp_smooth_loss
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
@@ -977,7 +1044,13 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             else:
                 recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            velo_loss, time_cor, temp_smooth_loss = post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = True, corr_mode = corr_mode)
+            # 【修改】传入 fine_clus_vec
+            velo_loss, time_cor, temp_smooth_loss = post_loss_share(
+                device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
+                n_neighbors=NUM_LOSS_NEIGH, warm_up=True, 
+                corr_mode=corr_mode,
+                fine_cluster_vec=fine_clus_vec # <--- Use Fine Cluster
+            )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
@@ -992,7 +1065,12 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             else:
                 recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
-            velo_loss, time_cor, temp_smooth_loss = post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors=NUM_LOSS_NEIGH, warm_up = False, corr_mode = corr_mode)
+            velo_loss, time_cor, temp_smooth_loss = post_loss_share(
+                device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
+                n_neighbors=NUM_LOSS_NEIGH, warm_up=False, 
+                corr_mode=corr_mode,
+                fine_cluster_vec=fine_clus_vec # <--- Use Fine Cluster
+            )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)

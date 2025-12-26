@@ -7,6 +7,8 @@ from scipy.signal import find_peaks
 from collections import defaultdict
 from scipy.interpolate import LSQUnivariateSpline
 import anndata as ad
+from sklearn.cluster import MiniBatchKMeans
+from ..plot import plot_entropy
 
 
 def use_scaled_orig(df, use_orig = False):
@@ -368,3 +370,147 @@ def pred_regulation_anndata(adata):
                     adata.layers['confidence'][cell_indices, gene_idx] = ps
 
     return adata
+
+class PriorInferenceManager:
+    def __init__(self, adata, df, result_path, seed=618):
+        self.adata = adata
+        self.df = df
+        self.result_path = result_path
+        self.seed = seed
+        
+        # 备份原始 Expert Cluster (假设初始的 pred_cluster 就是 Expert)
+        if 'expert_cluster' not in self.adata.obs:
+            self.adata.obs['expert_cluster'] = self.adata.obs['pred_cluster'].copy()
+            
+        # 确保 df 的 cellID 是字符串，方便后续映射
+        if 'cellID' in self.df.columns:
+            self.df['cellID'] = self.df['cellID'].astype(str)
+
+    def _update_mapping(self, cluster_col):
+        """
+        核心同步函数：确保 adata.obs['pred_cluster'] 和 df['pred_cluster'] 
+        内容一致，且与指定的 cluster_col (Expert 或 Fine) 同步。
+        """
+        # 1. 更新 adata: 将目标列覆盖到 pred_cluster
+        #    这是必须的，因为 steer.pred_regulation 默认读取 pred_cluster
+        self.adata.obs['pred_cluster'] = self.adata.obs[cluster_col]
+        
+        # 2. 更新 df: 基于 Barcode String Mapping
+        cluster_map = self.adata.obs[cluster_col].to_dict()
+        self.df['pred_cluster'] = self.df['cellID'].map(cluster_map)
+        
+        # 3. 处理 NaN (Robust)
+        if self.df['pred_cluster'].isna().any():
+            mode_val = self.adata.obs[cluster_col].mode()[0]
+            print(f"  [Info] Please Check ! Filling NaNs in df mapping with mode: {mode_val}")
+            self.df['pred_cluster'] = self.df['pred_cluster'].fillna(mode_val)
+            
+        return self.adata, self.df
+
+    def task1_define_fine_clusters(self, method='hierarchical', target_size=100):
+        """
+        任务 1: 定义 Fine Cluster
+        :param method: 
+            - 'global': 全局 K-Means
+            - 'hierarchical': Expert 内部细分 (推荐)
+            - 'none': 不进行细分，直接使用 Expert 作为 Fine Cluster (满足你的需求1)
+        """
+        print(f"--- Task 1: Generating Fine Clusters (Method: {method}) ---")
+        
+        X_emb = self.adata.obsm['X_pre_embed']
+        
+        if method == 'none':
+            # 【新功能】直接复用 Expert
+            print("  -> Method is 'none', copying Expert clusters to Fine clusters.")
+            self.adata.obs['fine_cluster'] = self.adata.obs['expert_cluster'].astype(str)
+            
+        elif method == 'global':
+            n_clusters = max(int(self.adata.n_obs / target_size), 5)
+            print(f"  -> Global K-Means: Partitioning into {n_clusters} clusters.")
+            kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=self.seed, batch_size=4096, n_init=3)
+            labels = kmeans.fit_predict(X_emb)
+            self.adata.obs['fine_cluster'] = labels.astype(str)
+            
+        elif method == 'hierarchical':
+            print(f"  -> Hierarchical K-Means: Target size {target_size}")
+            self.adata.obs['fine_cluster'] = self.adata.obs['expert_cluster'].astype(str)
+            unique_experts = self.adata.obs['expert_cluster'].unique()
+            
+            count = 0
+            for expert in unique_experts:
+                idx = np.where(self.adata.obs['expert_cluster'] == expert)[0]
+                n_cells = len(idx)
+                
+                if n_cells > 1.5 * target_size:
+                    k_sub = max(int(n_cells / target_size), 2)
+                    kmeans = MiniBatchKMeans(n_clusters=k_sub, random_state=self.seed, batch_size=4096, n_init=3)
+                    sub_labels = kmeans.fit_predict(X_emb[idx])
+                    new_labels = [f"{expert}_{l}" for l in sub_labels]
+                    
+                    col_idx = self.adata.obs.columns.get_loc('fine_cluster')
+                    self.adata.obs.iloc[idx, col_idx] = new_labels
+                    count += k_sub
+                else:
+                    count += 1
+            print(f"  -> Generated {count} hierarchical micro-clusters.")
+        
+        return self.adata
+
+    def task2_filter_genes(self, based_on='expert', keep_ngene=1000, use_filter=True):
+        """
+        任务 2: 基因筛选
+        """
+        target_col = 'expert_cluster' if based_on == 'expert' else 'fine_cluster'
+        # 同步状态
+        self.adata, self.df = self._update_mapping(target_col)
+        pretrain_df = use_scaled_orig(self.df, use_orig=False)
+        # 这里的 bins 也可以根据是 expert 还是 fine 自动调整
+        bins = 5
+        
+        if not use_filter:
+            print(f"--- Task 2: Gene Filtering Skipped (Calculated on {target_col} for reference) ---")
+            Entropy_df = grid_us_space_extended(pretrain_df, bins=bins, label_cols=['pred_cluster'], min_ncell=5)
+            self.adata = add_entropy_to_adata(self.adata, Entropy_df, top_n=self.adata.n_vars)
+        else:
+            print(f"--- Task 2: Filtering Genes (Based on: {based_on.upper()}, Keep: {keep_ngene}) ---")
+            Entropy_df = grid_us_space_extended(pretrain_df, bins=bins, label_cols=['pred_cluster'], min_ncell=5)
+            # 注意 key 是 pred_cluster
+            plot_entropy(Entropy_df, path=self.result_path, key='Entropy_pred_cluster')
+            self.adata = add_entropy_to_adata(self.adata, Entropy_df, top_n=keep_ngene)
+            
+        return self.adata
+
+    def task3_calc_convexity(self, based_on='expert'):
+        """
+        任务 3: 计算凸性 (Prior Direction)
+        """
+        print(f"--- Task 3: Calculating Direction (Based on: {based_on.upper()}) ---")
+        target_col = 'expert_cluster' if based_on == 'expert' else 'fine_cluster'
+        # 关键：切换 mapping，让 pred_regulation 看到正确的列
+        self.adata, self.df = self._update_mapping(target_col)
+        # 计算
+        self.adata = pred_regulation_anndata(self.adata)
+        return self.adata
+    
+    def finalize_for_training(self):
+        """
+        收尾与任务 4 准备: 
+        1. 恢复 Expert 标签用于展示
+        2. 返回处理好的 fine_cluster_vector 给 PyG
+        """
+        print("--- Finalizing: Restoring Expert labels & Preparing Fine Cluster Vector ---")
+        
+        # 1. 恢复展示用的 Cluster
+        self.adata.obs['pred_cluster'] = self.adata.obs['expert_cluster']
+        
+        # 2. 准备 Task 4 所需的向量 (Correlation Cluster)
+        # 逻辑：如果有 fine_cluster 就用，没有就回退到 expert
+        if 'fine_cluster' in self.adata.obs:
+            cluster_series = self.adata.obs['fine_cluster'].astype(str)
+        else:
+            cluster_series = self.adata.obs['pred_cluster'].astype(str)
+            
+        # 转为整数编码
+        fine_clus_vec_np = cluster_series.astype('category').cat.codes.values.astype(int)
+        
+        return self.adata, self.df, fine_clus_vec_np
