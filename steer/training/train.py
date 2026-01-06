@@ -86,32 +86,50 @@ class RegulationModel(nn.Module):
 #         # adjusted_regulation = norm_matrix * self.type_features
 #         return adjusted_regulation
 
-
-
-
 class ExpertModel(nn.Module):
-    def __init__(self, ein_features, eout_features):
+    def __init__(self, ein_features, eout_features, mode='original', ehidden_size=256):
         super(ExpertModel, self).__init__()
-        # Calculate dynamic layer sizes
-        ehidden_size = 2 * ein_features
-        second_layer_size = 4 * ein_features
-        third_layer_size = 8 * ein_features
-        self.network = nn.Sequential(
-            nn.Linear(ein_features + 1, ehidden_size),
-            nn.LayerNorm(ehidden_size),  # Adding BatchNorm after the first hidden layer activation
-            nn.LeakyReLU(),
+        self.mode = mode
+        
+        if mode == 'slim':
+            # === 新版本：瘦身 + Dropout (更稳定) ===
+            self.network = nn.Sequential(
+                nn.Linear(ein_features + 1, ehidden_size), # 129 -> 256
+                nn.LayerNorm(ehidden_size),
+                nn.LeakyReLU(),
+                nn.Dropout(0.2),  # 防止过拟合
+                
+                nn.Linear(ehidden_size, ehidden_size),     # 256 -> 256
+                nn.LayerNorm(ehidden_size),
+                nn.LeakyReLU(),
+                nn.Dropout(0.2),
+
+                nn.Linear(ehidden_size, eout_features),    # 256 -> 6000
+                nn.Sigmoid()
+            )
+        else:
+            # === 旧版本：原始大网络 (保持结果一致) ===
+            # Default: ehidden_size calc logic form original code
+            ehidden_size = 2 * ein_features
+            second_layer_size = 4 * ein_features
+            third_layer_size = 8 * ein_features
             
-            nn.Linear(ehidden_size, second_layer_size),
-            nn.LayerNorm(second_layer_size),  # Adding BatchNorm after the second hidden layer activation
-            nn.LeakyReLU(),
-            
-            nn.Linear(second_layer_size,third_layer_size),
-            nn.LayerNorm(third_layer_size),  # Adding BatchNorm after the third hidden layer activation
-            nn.LeakyReLU(),
-            
-            nn.Linear(third_layer_size, eout_features),
-            nn.Sigmoid()  # Final output
-        )
+            self.network = nn.Sequential(
+                nn.Linear(ein_features + 1, ehidden_size),
+                nn.LayerNorm(ehidden_size),
+                nn.LeakyReLU(),
+                
+                nn.Linear(ehidden_size, second_layer_size),
+                nn.LayerNorm(second_layer_size),
+                nn.LeakyReLU(),
+                
+                nn.Linear(second_layer_size, third_layer_size),
+                nn.LayerNorm(third_layer_size),
+                nn.LeakyReLU(),
+                
+                nn.Linear(third_layer_size, eout_features),
+                nn.Sigmoid()
+            )
     
     def forward(self, x, t):
         x = torch.cat((x, t), dim=1)
@@ -232,7 +250,7 @@ class GATConv(MessagePassing):
                                              self.out_channels, self.heads)
 
 class GATModel(nn.Module):
-    def __init__(self, in_features, hid_features, out_features, num_clusters, num_genes, type_features = None, use_experts=True):
+    def __init__(self, in_features, hid_features, out_features, num_clusters, num_genes, type_features = None, use_experts=True, expert_mode='original'):
         super(GATModel, self).__init__()
         
         # Encoder
@@ -258,6 +276,8 @@ class GATModel(nn.Module):
         # Initialize expert networks only if use_experts is True
         self.num_genes = num_genes
         self.use_experts = use_experts
+        self.expert_mode = expert_mode  # 保存 mode
+
         if use_experts:
             self.init_experts(out_features, num_clusters, num_genes)
                
@@ -296,15 +316,29 @@ class GATModel(nn.Module):
     #     c = torch.matmul(z, self.L_1)
     #     return c
 
+    # V2的版本
+    # def compute_cell_params(self, c, z, t, num_genes):
+    #     if self.use_experts:
+    #         expert_outputs = torch.stack([expert(z, t) for expert in self.experts], dim=1)
+    #         weights = c.unsqueeze(-1).expand(-1, -1, expert_outputs.size(-1))
+    #         weighted_outputs = expert_outputs * weights
+    #         summed_outputs = torch.sum(weighted_outputs, dim=1)
+    #         return summed_outputs
+    #     else:
+    #         # Return a placeholder or default value if experts are not used
+    #         return torch.zeros(z.size(0), 3 * num_genes).to(z.device)
+        
     def compute_cell_params(self, c, z, t, num_genes):
         if self.use_experts:
-            expert_outputs = torch.stack([expert(z, t) for expert in self.experts], dim=1)
-            weights = c.unsqueeze(-1).expand(-1, -1, expert_outputs.size(-1))
-            weighted_outputs = expert_outputs * weights
-            summed_outputs = torch.sum(weighted_outputs, dim=1)
+            batch_size = z.size(0)
+            output_dim = 3 * num_genes
+            summed_outputs = torch.zeros(batch_size, output_dim, device=z.device)
+            for i, expert in enumerate(self.experts):
+                expert_out = expert(z, t)
+                weight = c[:, i].unsqueeze(1) 
+                summed_outputs += weight * expert_out
             return summed_outputs
         else:
-            # Return a placeholder or default value if experts are not used
             return torch.zeros(z.size(0), 3 * num_genes).to(z.device)
 
     def forward(self, x, edge_index, use_initial_regulation=True):
@@ -614,42 +648,92 @@ def masked_max_aggregation(cosine_similarity, inverse_indices, k = 3):
         mask[max_indices, col_indices] = False
     return torch.mean(1 - torch.masked_select(results, results.ne(-2)))
 
-def velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, k = 3):
-    # Get the used material
+def velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, k=3, batch_size=None):
+    # 1. 预计算全局变量 (这些占用显存小，仅 [N_cells, N_genes]，保留在全局)
     cells, genes = pyg_data.unsplice.shape
-    # Reshape cp to separate alpha, beta, gamma for each gene
     cp_reshaped = cp.view(cells, genes, 3)
     alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
 
-    # warm up
     if warm_up:
-        alpha = torch.where(up_type_features > 0, torch.tensor(1.0, device=alpha.device), torch.tensor(0.0, device=alpha.device))
+        alpha = torch.where(up_type_features > 0, 
+                          torch.tensor(1.0, device=alpha.device), 
+                          torch.tensor(0.0, device=alpha.device))
     
-    # Calculate pred_vu and pred_vs for each gene, each cell
-    pred_vu = alpha - beta * pyg_data.unsplice
-    pred_vs = beta * pyg_data.unsplice - gamma * pyg_data.splice
-
-    # Source and target nodes
-    src = pyg_data.time_edge_index[0]
-    tgt = pyg_data.time_edge_index[1]
+    # 提前算出所有细胞的预测值 (Small Tensor: ~150MB)
+    pred_vu_all = alpha - beta * pyg_data.unsplice
+    pred_vs_all = beta * pyg_data.unsplice - gamma * pyg_data.splice
     
-    # Calculate differences for unsplice
-    unsplice_diff = pyg_data.unsplice[tgt] - pyg_data.unsplice[src]
-    pred_vu_time_edge = pred_vu[src]
+    # 获取全图的边索引
+    src_all = pyg_data.time_edge_index[0]
+    tgt_all = pyg_data.time_edge_index[1]
     
-    # Calculate differences for splice
-    splice_diff = pyg_data.splice[tgt] - pyg_data.splice[src]
-    pred_vs_time_edge = pred_vs[src]
+    # === 分支判断：如果不分 Batch (默认情况) ===
+    if batch_size is None:
+        # 原始逻辑：一次性计算所有边
+        # Unspliced Diff
+        unsplice_diff = pyg_data.unsplice[tgt_all] - pyg_data.unsplice[src_all]
+        pred_vu_edge = pred_vu_all[src_all]
+        
+        # Spliced Diff
+        splice_diff = pyg_data.splice[tgt_all] - pyg_data.splice[src_all]
+        pred_vs_edge = pred_vs_all[src_all]
 
-    # Calculate cosine similarity
-    cosine_similarity = F.cosine_similarity(torch.stack((pred_vu_time_edge, pred_vs_time_edge), dim=2), torch.stack((unsplice_diff, splice_diff), dim=2), dim=2)
-    
-    _, inverse_indices = src.unique(return_inverse=True)
+        # Calculate Cosine Similarity (All at once)
+        cosine_sim = F.cosine_similarity(
+            torch.stack((pred_vu_edge, pred_vs_edge), dim=2), 
+            torch.stack((unsplice_diff, splice_diff), dim=2), 
+            dim=2
+        )
+        
+        _, inverse_indices = src_all.unique(return_inverse=True)
+        # 直接聚合
+        final_loss = masked_max_aggregation(cosine_sim, inverse_indices, k=k)
+        return final_loss
 
-    velo_loss = masked_max_aggregation(cosine_similarity, inverse_indices, k = k)
+    else:
+        # === 分支判断：开启 Batch (大显存救急模式) ===
+        # 获取所有作为 source 的唯一细胞 (用于分批)
+        unique_src_cells, inverse_indices_all = src_all.unique(return_inverse=True)
+        num_unique_cells = unique_src_cells.size(0)
 
-    return velo_loss
+        total_loss_sum = 0.0
+        
+        for i in range(0, num_unique_cells, batch_size):
+            # 1. 确定当前批次的细胞
+            batch_cell_indices = unique_src_cells[i : i + batch_size]
+            
+            # 2. 找到这些细胞发出的所有边
+            edge_mask = torch.isin(src_all, batch_cell_indices)
+            if not edge_mask.any(): continue
 
+            # 3. 提取当前批次的边数据
+            batch_src = src_all[edge_mask]
+            batch_tgt = tgt_all[edge_mask]
+            
+            # 4. 准备计算
+            unsplice_diff = pyg_data.unsplice[batch_tgt] - pyg_data.unsplice[batch_src]
+            pred_vu_edge = pred_vu_all[batch_src]
+            
+            splice_diff = pyg_data.splice[batch_tgt] - pyg_data.splice[batch_src]
+            pred_vs_edge = pred_vs_all[batch_src]
+
+            # 5. 计算 Cosine
+            cosine_sim = F.cosine_similarity(
+                torch.stack((pred_vu_edge, pred_vs_edge), dim=2), 
+                torch.stack((unsplice_diff, splice_diff), dim=2), 
+                dim=2
+            )
+            
+            # 6. 聚合 Loss
+            _, batch_inverse = batch_src.unique(return_inverse=True)
+            batch_mean_loss = masked_max_aggregation(cosine_sim, batch_inverse, k=k)
+            
+            # 7. 累加权重 Loss (还原回 sum)
+            n_cells_in_batch = batch_inverse.max().item() + 1
+            total_loss_sum += batch_mean_loss * n_cells_in_batch
+
+        final_loss = total_loss_sum / num_unique_cells
+        return final_loss
 
 def velocity_loss_gene_single_top3_polish(device, device2, used_adj, pyg_data, up_type_features, cp, warm_up, k = 3):
 
@@ -782,7 +866,7 @@ def velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_feat
 #     return velo_loss, time_cor, temp_smooth_loss
 
 # 修改后 (增加 fine_cluster_vec 参数)
-def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only=False, corr_mode='u', cos_batch=500, fine_cluster_vec=None):
+def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only=False, corr_mode='u', cos_batch=500, fine_cluster_vec=None, velo_batch_size=None):
     # 1. 处理 Time Correlation Loss
     # 逻辑：只要有细聚类 (fine_cluster_vec)，就用细类算 Correlation；否则用 Experts (c_softmax)
     if fine_cluster_vec is not None:
@@ -826,7 +910,7 @@ def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_
         if device2 != t.device:
             velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
         else:
-            velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up)
+            velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, batch_size=velo_batch_size)
 
     # Time Smooth loss (不变)
     temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
@@ -916,7 +1000,7 @@ def generate_mask(x, mask_ratio=0.1):
 def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, adata, 
                                         NUM_LOSS_NEIGH, max_n_cluster, corr_mode = 'u', 
                                         cos_batch = 100, path = '/HOME/scz3472/run/GATVelo/', mask_train = False, prior_time = None, order = None,
-                                        hidden_size = 512, latent_size = 128, num_epochs = 10000,pretrain_epochs = 1500,cluster_epochs = 1500,time_epochs = 200,warm_up_epochs = 200):
+                                        hidden_size = 512, latent_size = 128, num_epochs = 10000,pretrain_epochs = 1500,cluster_epochs = 1500,time_epochs = 200,warm_up_epochs = 200,expert_mode='original', velo_batch_size=None):
     if MODEL_MODE == 'pretrain':
         use_experts = False
     else:
@@ -947,7 +1031,8 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
         num_clusters=max_n_cluster,
         num_genes=adata.n_vars,
         type_features=pyg_data.type_features,
-        use_experts=use_experts
+        use_experts=use_experts,
+        expert_mode=expert_mode # <--- 传入 GATModel
     ).to(device)
     pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
     pyg_data.splice = pyg_data.x[:,adata.n_vars:]
@@ -1049,7 +1134,8 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
                 device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
                 n_neighbors=NUM_LOSS_NEIGH, warm_up=True, 
                 corr_mode=corr_mode,
-                fine_cluster_vec=fine_clus_vec # <--- Use Fine Cluster
+                fine_cluster_vec=fine_clus_vec, # <--- Use Fine Cluster
+                velo_batch_size=velo_batch_size # <--- 传入
             )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
@@ -1069,7 +1155,8 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
                 device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
                 n_neighbors=NUM_LOSS_NEIGH, warm_up=False, 
                 corr_mode=corr_mode,
-                fine_cluster_vec=fine_clus_vec # <--- Use Fine Cluster
+                fine_cluster_vec=fine_clus_vec, # <--- Use Fine Cluster
+                velo_batch_size=velo_batch_size # <--- 传入
             )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
