@@ -337,6 +337,96 @@ def construct_latent_adj(adata, npc = 50, NUM_AD_NEIGH = 30, graph_adj = 'connec
 
     return adata, adjacency_matrix
 
+def preprocess_anndata_with_custom_data(adata, 
+                                layer_mapping=None, 
+                                pca_key='X_pca',
+                                NUM_AD_NEIGH=30, 
+                                neighbor_metric='euclidean', 
+                                graph_adj='connectivities'):
+    """
+    通用预处理接口：使用预先计算好的 PCA 和 图层数据 (Mu, Ms, spliced, unspliced)
+    来构建 STEER 模型所需的输入。
+    
+    参数:
+    ----------
+    adata : AnnData
+        包含预计算数据对象的 AnnData。
+    layer_mapping : dict, optional
+        定义外部数据层到 STEER 内部名称的映射。
+        默认映射适配刚才保存的 H5AD 结构：
+        - 'Ms': 模型用的平滑 Spliced -> 'spliced_imputed'
+        - 'Mu': 模型用的平滑 Unspliced -> 'unspliced_imputed'
+        - 'spliced': 原始 Spliced -> 'spliced_original'
+        - 'unspliced': 原始 Unspliced -> 'unspliced_original'
+    pca_key : str
+        使用的 PCA 坐标键名，默认为 'X_pca'。
+    """
+    
+    # 默认映射配置 (适配之前生成的 H5AD)
+    if layer_mapping is None:
+        layer_mapping = {
+            'Ms': 'spliced_imputed',
+            'Mu': 'unspliced_imputed',
+            'spliced': 'spliced_original',
+            'unspliced': 'unspliced_original'
+        }
+
+    adata.obs.index.name = 'cellID'
+    adata.var.index.name = 'gene_name'
+
+    print("--- Preprocessing with custom provided layers ---")
+    
+    # 1. 映射数据层 (Layer Mapping)
+    # 将外部定义的层名映射到 convert_anndata 所需的标准名称 (Ms, Mu, spliced, unspliced)
+    for internal_name, source_name in layer_mapping.items():
+        if source_name in adata.layers:
+            print(f"  Mapping '{source_name}' -> '{internal_name}'")
+            adata.layers[internal_name] = adata.layers[source_name].copy()
+        elif source_name == 'X': # 允许映射到 X
+            print(f"  Mapping 'X' -> '{internal_name}'")
+            adata.layers[internal_name] = adata.X.copy()
+        else:
+            # 如果是原始计数缺失，报错；如果是平滑数据缺失，尝试回退
+            if internal_name in ['spliced', 'unspliced']:
+                 # 尝试找不带 _original 后缀的标准名
+                 fallback = internal_name
+                 if fallback in adata.layers:
+                     print(f"  '{source_name}' not found, using standard '{fallback}'")
+                     adata.layers[internal_name] = adata.layers[fallback]
+                 else:
+                     raise ValueError(f"Critical: Source layer '{source_name}' for '{internal_name}' not found.")
+            else:
+                print(f"  Warning: Source layer '{source_name}' for '{internal_name}' not found. Falling back to X.")
+                adata.layers[internal_name] = adata.X.copy()
+
+    # 2. 构建/复用邻接矩阵 (Neighbor Graph)
+    # 直接使用预先计算好的 Embedding (PCA)
+    if pca_key not in adata.obsm:
+        raise ValueError(f"Missing '{pca_key}' in adata.obsm. Cannot compute neighbors.")
+    
+    print(f"  Computing neighbors using provided embedding '{pca_key}' (k={NUM_AD_NEIGH})...")
+    sc.pp.neighbors(adata, n_neighbors=NUM_AD_NEIGH, use_rep=pca_key, metric=neighbor_metric, key_added='adj')
+
+    # 3. 提取邻接矩阵 (Adjacency Matrix) 为 Dense 格式
+    binary_connectivities = adata.obsp['adj_' + graph_adj].copy()
+    binary_connectivities.data = np.ones_like(binary_connectivities.data)
+    binary_connectivities.setdiag(1)
+    binary_connectivities = binary_connectivities.astype(int)
+    adjacency_matrix = binary_connectivities.toarray()
+
+    # 4. 生成 DataFrame (调用现有的 convert_anndata)
+    # 此时 adata 已经具备了 convert_anndata 所需的所有标准层名
+    print("  Converting AnnData to DataFrame...")
+    df = convert_anndata(adata) 
+
+    # 5. 归一化 (最大值归一化)
+    # 对平滑后的数据列进行 [0,1] 缩放，适合深度学习输入
+    print("  Normalizing Ms/Mu columns to [0,1]...")
+    df['unsplice'] = df.groupby('gene_name')['unsplice'].transform(lambda x: x / x.max() if x.max() != 0 else x)
+    df['splice'] = df.groupby('gene_name')['splice'].transform(lambda x: x / x.max() if x.max() != 0 else x)
+    
+    return df, adjacency_matrix, adata
+
 def preprocess_anndata(adata, npc = 30, NUM_AD_NEIGH = 30, SMOOTH_NEIGH = 100, use_us = True, neighbor_metric='cosine', graph_adj ='connectivities',latent_graph = False, moments_adj = True, smooth=True):
     adata.obs.index.name = 'cellID'
     adata.var.index.name = 'gene_name'
