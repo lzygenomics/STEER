@@ -341,22 +341,15 @@ class GATModel(nn.Module):
         else:
             return torch.zeros(z.size(0), 3 * num_genes).to(z.device)
 
-    def forward(self, x, edge_index, use_initial_regulation=True, indices: Optional[Tensor] = None):
+    def forward(self, x, edge_index, use_initial_regulation=True):
         z = self.encode(x, edge_index)
         recon = self.decode(z, edge_index)
         # c_softmax = F.softmax(self.compute_cluster_matrix(z), dim=-1)  # Softmax to get cluster assignments  
         c_softmax = F.softmax(self.cluster_network(z), dim=-1)
         # Predict time point
         t = self.time_prediction_network(z)
-        # Compute cell parameters (cp)
-        # If `indices` is provided, only compute cp for the selected subset of cells (cp batching)
-        if indices is not None:
-            z_sub = z[indices]
-            t_sub = t[indices]
-            c_sub = c_softmax[indices]
-            cp = self.compute_cell_params(c_sub, z_sub, t_sub, self.num_genes)
-        else:
-            cp = self.compute_cell_params(c_softmax, z, t, self.num_genes)
+        # Compute cell parameters including time point
+        cp = self.compute_cell_params(c_softmax, z, t, self.num_genes)
         up_type_features = self.up_regulation(use_initial=use_initial_regulation)
         
         return recon, z, t, c_softmax, cp, up_type_features
@@ -655,175 +648,93 @@ def masked_max_aggregation(cosine_similarity, inverse_indices, k = 3):
         mask[max_indices, col_indices] = False
     return torch.mean(1 - torch.masked_select(results, results.ne(-2)))
 
-
-def velocity_loss_share_single_top3_polish(
-    pyg_data,
-    up_type_features,
-    cp,
-    warm_up,
-    k: int = 3,
-    batch_size: Optional[int] = None,
-    batch_indices: Optional[Tensor] = None,
-):
-    """Velocity cosine loss with optional batching.
-
-    Modes:
-      1) Full mode (batch_indices is None):
-         - cp is [N, 3*G]
-         - optional internal batching across source cells via batch_size
-
-      2) Stochastic cell batching mode (batch_indices is not None):
-         - cp is [B, 3*G] computed only for batch_indices (cp batching)
-         - only edges whose *source* is in batch_indices contribute to the loss
-
-    Notes:
-      - Top-k aggregation (k=3 by default) is performed over neighbor edges *per source cell*.
-      - This function keeps the original per-gene cosine definition.
-    """
-
-    # ========= Mode 2: stochastic cell batching (recommended for large graphs) =========
-    if batch_indices is not None:
-        # Shapes
-        num_cells, num_genes = pyg_data.unsplice.shape
-        B = int(batch_indices.numel())
-
-        # Edge index (already masked by time in get_mask_t_share)
-        src_all = pyg_data.time_edge_index[0]
-        tgt_all = pyg_data.time_edge_index[1]
-
-        # Keep only edges whose source node is in batch_indices
-        edge_mask = torch.isin(src_all, batch_indices)
-        if not edge_mask.any():
-            return torch.tensor(0.0, device=cp.device, requires_grad=True)
-
-        src_batch = src_all[edge_mask]
-        tgt_batch = tgt_all[edge_mask]
-
-        # Map global cell id -> local id in cp (0..B-1)
-        lookup = torch.full((num_cells,), -1, dtype=torch.long, device=cp.device)
-        lookup[batch_indices] = torch.arange(B, device=cp.device)
-        local_src_idx = lookup[src_batch]
-
-        # Reshape cp: [B, G, 3] -> alpha/beta/gamma per (cell,gene)
-        cp_reshaped = cp.view(B, num_genes, 3)
-        alpha_all = cp_reshaped[..., 0]
-        beta_all = cp_reshaped[..., 1]
-        gamma_all = cp_reshaped[..., 2]
-
-        alpha = alpha_all[local_src_idx]
-        beta = beta_all[local_src_idx]
-        gamma = gamma_all[local_src_idx]
-
-        # Warm-up: override alpha by up-regulation sign if up_type_features is per-cell
-        if warm_up and up_type_features is not None:
-            if up_type_features.dim() == 2 and up_type_features.shape[0] == num_cells:
-                curr_up_reg = up_type_features[src_batch]
-                alpha = torch.where(
-                    curr_up_reg > 0,
-                    torch.tensor(1.0, device=alpha.device),
-                    torch.tensor(0.0, device=alpha.device),
-                )
-
-        # Expression data for src/tgt
-        unsplice_src = pyg_data.unsplice[src_batch]
-        splice_src = pyg_data.splice[src_batch]
-        unsplice_tgt = pyg_data.unsplice[tgt_batch]
-        splice_tgt = pyg_data.splice[tgt_batch]
-
-        # Predicted velocity (per-edge, per-gene)
-        pred_vu_edge = alpha - beta * unsplice_src
-        pred_vs_edge = beta * unsplice_src - gamma * splice_src
-
-        # Observed diff along edge
-        unsplice_diff = unsplice_tgt - unsplice_src
-        splice_diff = splice_tgt - splice_src
-
-        cosine_sim = F.cosine_similarity(
-            torch.stack((pred_vu_edge, pred_vs_edge), dim=2),
-            torch.stack((unsplice_diff, splice_diff), dim=2),
-            dim=2,
-        )
-
-        # Aggregate per source cell (top-k over neighbor edges)
-        _, inverse_indices = src_batch.unique(return_inverse=True)
-        final_loss = masked_max_aggregation(cosine_sim, inverse_indices, k=k)
-        return final_loss
-
-    # ========= Mode 1: full graph loss (original implementation) =========
-    # 1. Precompute global variables (small enough: [N_cells, N_genes])
+def velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, k=3, batch_size=None):
+    # 1. 预计算全局变量 (这些占用显存小，仅 [N_cells, N_genes]，保留在全局)
     cells, genes = pyg_data.unsplice.shape
     cp_reshaped = cp.view(cells, genes, 3)
     alpha, beta, gamma = cp_reshaped[..., 0], cp_reshaped[..., 1], cp_reshaped[..., 2]
 
     if warm_up:
-        alpha = torch.where(
-            up_type_features > 0,
-            torch.tensor(1.0, device=alpha.device),
-            torch.tensor(0.0, device=alpha.device),
-        )
-
-    # Predicted velocity for all cells
+        alpha = torch.where(up_type_features > 0, 
+                          torch.tensor(1.0, device=alpha.device), 
+                          torch.tensor(0.0, device=alpha.device))
+    
+    # 提前算出所有细胞的预测值 (Small Tensor: ~150MB)
     pred_vu_all = alpha - beta * pyg_data.unsplice
     pred_vs_all = beta * pyg_data.unsplice - gamma * pyg_data.splice
-
-    # Full edge index
+    
+    # 获取全图的边索引
     src_all = pyg_data.time_edge_index[0]
     tgt_all = pyg_data.time_edge_index[1]
-
-    # No internal batching
+    
+    # === 分支判断：如果不分 Batch (默认情况) ===
     if batch_size is None:
+        # 原始逻辑：一次性计算所有边
+        # Unspliced Diff
         unsplice_diff = pyg_data.unsplice[tgt_all] - pyg_data.unsplice[src_all]
         pred_vu_edge = pred_vu_all[src_all]
-
+        
+        # Spliced Diff
         splice_diff = pyg_data.splice[tgt_all] - pyg_data.splice[src_all]
         pred_vs_edge = pred_vs_all[src_all]
 
+        # Calculate Cosine Similarity (All at once)
         cosine_sim = F.cosine_similarity(
-            torch.stack((pred_vu_edge, pred_vs_edge), dim=2),
-            torch.stack((unsplice_diff, splice_diff), dim=2),
-            dim=2,
+            torch.stack((pred_vu_edge, pred_vs_edge), dim=2), 
+            torch.stack((unsplice_diff, splice_diff), dim=2), 
+            dim=2
         )
-
+        
         _, inverse_indices = src_all.unique(return_inverse=True)
+        # 直接聚合
         final_loss = masked_max_aggregation(cosine_sim, inverse_indices, k=k)
         return final_loss
 
-    # Internal batching over unique source cells
-    unique_src_cells = src_all.unique()
-    num_unique_cells = unique_src_cells.size(0)
+    else:
+        # === 分支判断：开启 Batch (大显存救急模式) ===
+        # 获取所有作为 source 的唯一细胞 (用于分批)
+        unique_src_cells, inverse_indices_all = src_all.unique(return_inverse=True)
+        num_unique_cells = unique_src_cells.size(0)
 
-    total_loss_sum = 0.0
+        total_loss_sum = 0.0
+        
+        for i in range(0, num_unique_cells, batch_size):
+            # 1. 确定当前批次的细胞
+            batch_cell_indices = unique_src_cells[i : i + batch_size]
+            
+            # 2. 找到这些细胞发出的所有边
+            edge_mask = torch.isin(src_all, batch_cell_indices)
+            if not edge_mask.any(): continue
 
-    for i in range(0, num_unique_cells, batch_size):
-        batch_cell_indices = unique_src_cells[i : i + batch_size]
+            # 3. 提取当前批次的边数据
+            batch_src = src_all[edge_mask]
+            batch_tgt = tgt_all[edge_mask]
+            
+            # 4. 准备计算
+            unsplice_diff = pyg_data.unsplice[batch_tgt] - pyg_data.unsplice[batch_src]
+            pred_vu_edge = pred_vu_all[batch_src]
+            
+            splice_diff = pyg_data.splice[batch_tgt] - pyg_data.splice[batch_src]
+            pred_vs_edge = pred_vs_all[batch_src]
 
-        edge_mask = torch.isin(src_all, batch_cell_indices)
-        if not edge_mask.any():
-            continue
+            # 5. 计算 Cosine
+            cosine_sim = F.cosine_similarity(
+                torch.stack((pred_vu_edge, pred_vs_edge), dim=2), 
+                torch.stack((unsplice_diff, splice_diff), dim=2), 
+                dim=2
+            )
+            
+            # 6. 聚合 Loss
+            _, batch_inverse = batch_src.unique(return_inverse=True)
+            batch_mean_loss = masked_max_aggregation(cosine_sim, batch_inverse, k=k)
+            
+            # 7. 累加权重 Loss (还原回 sum)
+            n_cells_in_batch = batch_inverse.max().item() + 1
+            total_loss_sum += batch_mean_loss * n_cells_in_batch
 
-        batch_src = src_all[edge_mask]
-        batch_tgt = tgt_all[edge_mask]
+        final_loss = total_loss_sum / num_unique_cells
+        return final_loss
 
-        unsplice_diff = pyg_data.unsplice[batch_tgt] - pyg_data.unsplice[batch_src]
-        pred_vu_edge = pred_vu_all[batch_src]
-
-        splice_diff = pyg_data.splice[batch_tgt] - pyg_data.splice[batch_src]
-        pred_vs_edge = pred_vs_all[batch_src]
-
-        cosine_sim = F.cosine_similarity(
-            torch.stack((pred_vu_edge, pred_vs_edge), dim=2),
-            torch.stack((unsplice_diff, splice_diff), dim=2),
-            dim=2,
-        )
-
-        _, batch_inverse = batch_src.unique(return_inverse=True)
-        batch_mean_loss = masked_max_aggregation(cosine_sim, batch_inverse, k=k)
-
-        n_cells_in_batch = batch_inverse.max().item() + 1
-        total_loss_sum += batch_mean_loss * n_cells_in_batch
-
-    final_loss = total_loss_sum / num_unique_cells
-    return final_loss
 def velocity_loss_gene_single_top3_polish(device, device2, used_adj, pyg_data, up_type_features, cp, warm_up, k = 3):
 
     up_type_features = up_type_features.to(device2)
@@ -955,7 +866,7 @@ def velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_feat
 #     return velo_loss, time_cor, temp_smooth_loss
 
 # 修改后 (增加 fine_cluster_vec 参数)
-def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only=False, corr_mode='u', cos_batch=500, fine_cluster_vec=None, velo_batch_size=None, batch_indices: Optional[Tensor] = None):
+def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_neighbors, warm_up, time_only=False, corr_mode='u', cos_batch=500, fine_cluster_vec=None, velo_batch_size=None):
     # 1. 处理 Time Correlation Loss
     # 逻辑：只要有细聚类 (fine_cluster_vec)，就用细类算 Correlation；否则用 Experts (c_softmax)
     if fine_cluster_vec is not None:
@@ -999,7 +910,7 @@ def post_loss_share(device2, z, pyg_data, cp, up_type_features, t, c_softmax, n_
         if device2 != t.device:
             velo_loss = velocity_loss_share_single_top3_polish_multi(device2, pyg_data, up_type_features, cp, warm_up)
         else:
-            velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, batch_size=velo_batch_size, batch_indices=batch_indices)
+            velo_loss = velocity_loss_share_single_top3_polish(pyg_data, up_type_features, cp, warm_up, batch_size=velo_batch_size)
 
     # Time Smooth loss (不变)
     temp_smooth_loss = temporal_smoothness_loss2(z, t, n_neighbors)
@@ -1135,7 +1046,7 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     )
     # Early stopping parameters
     early_stopping_patience = 1000 # 1000 before
-    min_loss_improvement = 0.001
+    min_loss_improvement = 0 # 0.001
     best_loss = float('inf')
     patience_counter = 0
     best_model_state = None  # 用来暂存最佳参数
@@ -1158,26 +1069,16 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     
     for epoch in range(MAX_EPOCH):
         optimizer.zero_grad()
-
-        # [Cell batching] Randomly sample a subset of cells each epoch for cp + velocity loss
-        batch_indices = None
-        if use_experts and (velo_batch_size is not None):
-            num_cells = pyg_data.x.size(0)
-            bsz = int(min(int(velo_batch_size), int(num_cells)))
-            # Sample without replacement
-            batch_indices = torch.randperm(num_cells, device=device)[:bsz]
-
-
         
         if epoch < pretrain_epochs:
             # Phase 1: Just train the GATE
             if mask_train:
                 mask = generate_mask(pyg_data.x, 0.1)
                 x_unmasked = pyg_data.x * (1 - mask)
-                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             else:
-                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             loss = GATE_loss
             loss.backward()
@@ -1188,10 +1089,10 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             if mask_train:
                 mask = generate_mask(pyg_data.x, 0.1)
                 x_unmasked = pyg_data.x * (1 - mask)
-                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             else:
-                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             loss = GATE_loss + cluster_loss
             loss.backward()
@@ -1202,18 +1103,17 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             if mask_train:
                 mask = generate_mask(pyg_data.x, 0.1)
                 x_unmasked = pyg_data.x * (1 - mask)
-                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             else:
-                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             
             _, time_cor, temp_smooth_loss = post_loss_share(
                 device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
                 n_neighbors=NUM_LOSS_NEIGH, warm_up=True, time_only=True, 
                 corr_mode=corr_mode, 
-                fine_cluster_vec=fine_clus_vec,  # <--- Use Fine Cluster
-                batch_indices=batch_indices
+                fine_cluster_vec=fine_clus_vec  # <--- Use Fine Cluster
             )
             loss = GATE_loss + cluster_loss + time_cor + temp_smooth_loss
             loss.backward()
@@ -1224,10 +1124,10 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             if mask_train:
                 mask = generate_mask(pyg_data.x, 0.1)
                 x_unmasked = pyg_data.x * (1 - mask)
-                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=False, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             else:
-                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             # 【修改】传入 fine_clus_vec
             velo_loss, time_cor, temp_smooth_loss = post_loss_share(
@@ -1235,8 +1135,7 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
                 n_neighbors=NUM_LOSS_NEIGH, warm_up=True, 
                 corr_mode=corr_mode,
                 fine_cluster_vec=fine_clus_vec, # <--- Use Fine Cluster
-                velo_batch_size=None if batch_indices is not None else velo_batch_size # <--- 传入
-                , batch_indices=batch_indices
+                velo_batch_size=velo_batch_size # <--- 传入
             )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
@@ -1247,18 +1146,17 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             if mask_train:
                 mask = generate_mask(pyg_data.x, 0.1)
                 x_unmasked = pyg_data.x * (1 - mask)
-                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=False, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             else:
-                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=batch_indices)
+                recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
                 GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             velo_loss, time_cor, temp_smooth_loss = post_loss_share(
                 device2, z, pyg_data, cp, up_type_features, t, c_softmax, 
                 n_neighbors=NUM_LOSS_NEIGH, warm_up=False, 
                 corr_mode=corr_mode,
                 fine_cluster_vec=fine_clus_vec, # <--- Use Fine Cluster
-                velo_batch_size=None if batch_indices is not None else velo_batch_size # <--- 传入
-                , batch_indices=batch_indices
+                velo_batch_size=velo_batch_size # <--- 传入
             )
             loss = GATE_loss + cluster_loss + velo_loss + time_cor + temp_smooth_loss
             loss.backward()
@@ -1303,7 +1201,7 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=None)
+        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
         # Identify the cluster with the highest probability for each cell
         cluster = torch.argmax(c_softmax, dim=1)
         weight = torch.max(c_softmax, dim=1).values
@@ -1375,7 +1273,6 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     }, path + MODEL_MODE + '_GATEVelo_check_point.pth')
     # Return the DataFrame for the current gene
     return adata
-
 
 # Function to train and evaluate for each gene
 def model_training_share_neighbor_adata_ablation_MinCUT(device, device2, pyg_data, MODEL_MODE, adata, 
@@ -1685,7 +1582,7 @@ def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=None)
+        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
         # Identify the cluster with the highest probability for each cell
         cluster = torch.argmax(c_softmax, dim=1)
         weight = torch.max(c_softmax, dim=1).values
@@ -1780,7 +1677,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
 
         if epoch < pretrain_epochs:
             # Phase 1: Just train the GATE
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
             GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
             loss = GATE_loss
             loss.backward()
@@ -1788,7 +1685,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
             optimizer.step()
         elif epoch <= pretrain_epochs + cluster_epochs:
             # Phase 2: Train the GATE and MinCUT
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
             #if epoch % update_interval == 0 or inner_adj is None:
             inner_adj = update_adj(z)      
             GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = inner_adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
@@ -1798,7 +1695,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
             optimizer.step()
         elif epoch <= pretrain_epochs + cluster_epochs + time_epochs:
             # Phase 3: Train the time
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
             #if epoch % update_interval == 0 or inner_adj is None:
             inner_adj = update_adj(z)       
             GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = inner_adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
@@ -1815,7 +1712,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
                         param.requires_grad = False
                 freeze_done = True
             # Phase 4: Train the velocity(warm up)
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
             #if epoch % update_interval == 0 or inner_adj is None:
             inner_adj = update_adj(z)       
             GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = inner_adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
@@ -1826,7 +1723,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
             optimizer.step()
         else:
             # Phase 5: Train the velocity
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
             #if epoch % update_interval == 0 or inner_adj is None:
             inner_adj = update_adj(z)     
             GATE_loss, cluster_loss = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = inner_adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
@@ -1858,7 +1755,7 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=None)
+        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
         # Identify the cluster with the highest probability for each cell
         cluster = torch.argmax(c_softmax, dim=1)
         weight = torch.max(c_softmax, dim=1).values
@@ -1964,10 +1861,10 @@ def pretrain_mclust(device, pyg_data, adata, NUM_LOSS_NEIGH, max_n_cluster, mask
         if mask_train:
             mask = generate_mask(pyg_data.x, 0.15)
             x_unmasked = pyg_data.x * (1 - mask)
-            recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(x_unmasked, pyg_data.edge_index, use_initial_regulation=True)
             GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
         else:
-            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True, indices=batch_indices)
+            recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=True)
             GATE_loss, _ = pretrain_loss_function(data = pyg_data.x, recon = recon, z = z, adj = pyg_data.adj, c = c_softmax, edge_index = pyg_data.edge_index, n_neighbors = NUM_LOSS_NEIGH)
         loss = GATE_loss
         loss.backward()
@@ -1980,7 +1877,7 @@ def pretrain_mclust(device, pyg_data, adata, NUM_LOSS_NEIGH, max_n_cluster, mask
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         num_genes = adata.n_vars
-        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False, indices=None)
+        recon, z, t, c_softmax, cp, up_type_features = model(pyg_data.x, pyg_data.edge_index, use_initial_regulation=False)
         # Identify the cluster with the highest probability for each cell
         cluster = torch.argmax(c_softmax, dim=1)
         weight = torch.max(c_softmax, dim=1).values

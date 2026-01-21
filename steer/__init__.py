@@ -5,7 +5,8 @@ from .training import (
     model_training_share_neighbor_adata,
     model_training_gene_neighbor_adata,
     pretrain_mclust,
-    inductive_learn
+    inductive_learn,
+    model_training_share_neighbor_adata_ablation_MinCUT
 )
 
 # Prior functions
@@ -90,7 +91,7 @@ from .utils import (
 __all__ = [
     # Training
     'model_training_share_neighbor_adata', 'model_training_gene_neighbor_adata', 'pretrain_mclust',
-    'inductive_learn'
+    'inductive_learn', 'model_training_share_neighbor_adata_ablation_MinCUT'
 
     # Prior
     'use_scaled_orig', 'assign_random_clusters', 'grid_us_space_extended', 'filter_by_entropy',
