@@ -140,7 +140,7 @@ result_adata.write(RESULT_PATH + 'final_adata.h5ad')
 Guides for generating spliced/unspliced count matrices from raw spatial data:
 
 * **[Slide-seq Pipeline](./tutorials/raw_data_processing/Slide-seq/)**: Resolves 15bp-to-14bp barcode mismatches & runs velocyto.
-* **[10x Visium Pipeline](./tutorials/raw_data_processing/Visium/)**: Standard velocyto / STARsolo workflows.
+* **[10x Visium Pipeline](./tutorials/raw_data_processing/Visium/)**: Standard velocyto / Seurat workflows.
 * **[Stereo-seq Pipeline](./tutorials/raw_data_processing/Stereo-seq/)**: Pipeline based on the `stereopy` ecosystem.
 
 ---
