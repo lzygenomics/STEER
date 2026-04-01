@@ -53,7 +53,7 @@ To help you seamlessly integrate STEER into your research, we provide comprehens
 
 We provide an end-to-end example notebook that walks you through the entire STEER workflow:
 
-* 🚀 **[STEER Core Pipeline Demo](./tutorials/demo_tutorial.ipynb)**: Step-by-step interactive usage of the STEER framework.
+* 🚀 **[STEER Core Pipeline Demo](./tutorials/)**: Step-by-step interactive usage of the STEER framework.
 
 ### 2. Generating Spliced/Unspliced Matrices (Data Preprocessing)
 
@@ -77,7 +77,7 @@ See [`requirements.txt`](./requirements.txt) for full dependencies. Key librarie
 
 If you use STEER in your research, please cite our work:
 
-> *[ ]*
+> *[Zhiyuan Liu, Yaru Li, Dafei Wu, Weiwei Zhai, Liang Ma, STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference, National Science Review, 2026;, nwag199, https://doi.org/10.1093/nsr/nwag199]*
 
 ---
 
