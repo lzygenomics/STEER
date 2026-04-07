@@ -57,11 +57,17 @@ We provide an end-to-end example notebook that walks you through the entire STEE
 
 ### 2. Generating Spliced/Unspliced Matrices (Data Preprocessing)
 
+If your input `.h5ad` file already contains `spliced` and `unspliced` layers, you can directly run STEER without additional preprocessing. Otherwise, you may refer to the following pipelines to generate these matrices from raw sequencing data.
+
 A practical challenge in spatial RNA velocity is obtaining spliced and unspliced count matrices from raw sequencing data. We provide dedicated guidelines and pipelines for major spatial platforms:
 
 * 🧬 **[Slide-seq Pipeline](./tutorials/raw_data_processing/Slide-seq/)**: An end-to-end workflow resolving 15bp-to-14bp barcode mismatches and running `velocyto`.
 * 🔬 **[10x Visium Pipeline](./tutorials/raw_data_processing/Visium/)**: Standard workflows bridging `velocyto` with Seurat outputs.
 * 💻 **[Stereo-seq Pipeline](./tutorials/raw_data_processing/Stereo-seq/)**: Integration workflows based on the official `stereopy` ecosystem.
+
+---
+
+**More detailed model descriptions will be available in the Supplementary Materials once the final typeset version is released. A more comprehensive tutorial is also in preparation and will be made available afterwards.**
 
 ---
 
