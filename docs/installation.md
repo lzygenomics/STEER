@@ -1,67 +1,101 @@
 # Installation
 
-STEER currently recommends using a virtual environment with **Python 3.9+**.[^install]
+We recommend installing STEER in a clean virtual environment, such as a `conda` environment, with **Python 3.9 or newer**.
 
-## Recommended setup
+Some STEER features additionally require **R** and the `mclust` package.
 
-### 1. Create an environment
+## Recommended environment
+
+### Example GPU setup
+
+Tested during development with a configuration such as:
+
+- **GPU**: NVIDIA 3090
+- **CUDA**: 12.4
+- **PyTorch**: 2.4.0
+
+```bash
+# Create and activate environment
+conda create -n steer python=3.10
+conda activate steer
+
+# Optional R dependencies
+conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
+
+# Install PyTorch with CUDA 12.4 support
+pip install torch==2.4.0+cu124 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+
+# Install PyG dependencies
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
+pip install torch-sparse -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
+pip install torch-geometric
+
+# Install STEER
+pip install git+https://github.com/lzygenomics/STEER.git
+```
+
+### Tested newer setup
+
+STEER has also been tested in a newer environment such as:
+
+- **GPU**: NVIDIA L20
+- **CUDA**: 12.8
+- **PyTorch**: 2.8.0
+- **Python**: 3.10
 
 ```bash
 conda create -n steer python=3.10
 conda activate steer
-```
 
-### 2. Install optional R dependencies
-
-Some STEER features require **R** and the `mclust` package.[^install]
-
-```bash
 conda install -c conda-forge r-base=4.3.3 r-mclust=6.1.1
-```
 
-### 3. Install PyTorch
-
-The README gives an example for **CUDA 12.4 + PyTorch 2.4.0**:
-
-```bash
-pip install torch==2.4.0+cu124 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
-```
-
-It also shows a newer tested path using **CUDA 12.8 + PyTorch 2.8.0**.[^install]
-
-### 4. Install PyG dependencies
-
-For the CUDA 12.4 example:
-
-```bash
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
-pip install torch-sparse -f https://data.pyg.org/whl/torch-2.4.0+cu124.html
+pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
+pip install torch-sparse -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
 pip install torch-geometric
-```
-
-### 5. Install STEER
-
-```bash
-pip install git+https://github.com/lzygenomics/STEER.git
 ```
 
 ## Notes
 
-!!! note
-    The repository explicitly says the listed package versions are **not strict requirements**. They reflect the development environment and can be replaced by newer compatible versions.[^install]
+The environment versions listed above reflect configurations used during development and testing. They should be regarded as **recommended examples rather than strict version requirements**.
 
-!!! warning
-    PyTorch and PyG compatibility is the part most likely to fail first. If installation breaks, align **Python**, **CUDA**, **PyTorch**, and **PyG wheel versions** before debugging STEER itself.
+In general, STEER should work as long as the following packages are installed in a mutually compatible way:
 
-## Verify the installation
+- `torch`
+- `torch-geometric`
+- `torch-scatter`
+- `torch-sparse`
 
-Try importing the package in Python:
+## Additional dependencies
 
-```python
-import steer
-print("STEER imported successfully")
-```
+For the broader Python environment, please also refer to the project requirements file. Key libraries include:
 
-If that works, continue to the [Quick Start](quickstart.md).
+- `numpy`
+- `scipy`
+- `scanpy`
+- `scvelo`
+- `matplotlib`
+- `seaborn`
 
-[^install]: STEER's README includes Python, R, PyTorch, PyG, and installation guidance, plus a newer tested environment example. citeturn259328view0turn259328view3
+See the repository `requirements.txt` for the full dependency list.
+
+## Troubleshooting
+
+### R dependency issues
+
+If some STEER features fail because of missing R dependencies, make sure the following are available in your environment:
+
+- `r-base`
+- `r-mclust`
+
+### PyG installation issues
+
+If `torch-scatter` or `torch-sparse` fail to install, check that:
+
+1. your CUDA version matches the installed PyTorch wheel
+2. the PyG wheel URL matches your PyTorch version
+3. you are installing into the intended virtual environment
+
+### Verify installation
+
+After installation, open Python and test whether the main dependencies can be imported successfully.

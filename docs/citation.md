@@ -1,24 +1,29 @@
 # Citation
 
-If you use STEER in your research, cite the published article listed in the repository:[^citation]
+If you use **STEER** in your research, please cite:
 
-```bibtex
-@article{liu2026steer,
-  author  = {Zhiyuan Liu and Yaru Li and Dafei Wu and Weiwei Zhai and Liang Ma},
-  title   = {STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference},
-  journal = {National Science Review},
-  year    = {2026},
-  pages   = {nwag199},
-  doi     = {10.1093/nsr/nwag199}
-}
-```
+> Zhiyuan Liu, Yaru Li, Dafei Wu, Weiwei Zhai, Liang Ma.  
+> **STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference**.  
+> *National Science Review* (2026), nwag199.  
+> DOI: **10.1093/nsr/nwag199**
 
 ## DOI
 
-`10.1093/nsr/nwag199`
+[https://doi.org/10.1093/nsr/nwag199](https://doi.org/10.1093/nsr/nwag199)
 
-## Recommended text
+## Suggested BibTeX
 
-Please adapt the BibTeX to match the final journal export if needed.
+```bibtex
+@article{liu2026steer,
+  author = {Liu, Zhiyuan and Li, Yaru and Wu, Dafei and Zhai, Weiwei and Ma, Liang},
+  title = {STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference},
+  journal = {National Science Review},
+  year = {2026},
+  pages = {nwag199},
+  doi = {10.1093/nsr/nwag199}
+}
+```
 
-[^citation]: The STEER repository README includes the citation text and DOI for the National Science Review article. citeturn259328view2turn259328view4
+## Acknowledgement
+
+If STEER contributes to your analysis, please also consider citing related upstream tools and datasets where appropriate.

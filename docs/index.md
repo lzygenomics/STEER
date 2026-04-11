@@ -1,10 +1,12 @@
 # STEER
 
-**STEER** is a graph-attention-based **Spatial-Temporal Explainable Expert** model for **RNA velocity inference**. It is a deep learning framework that leverages spatial-temporal gene expression information and graph attention mechanisms to perform interpretable RNA velocity inference. STEER provides modules for training, visualization, prior construction, and utilities tailored to single-cell and spatial dynamics.
+**STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference**
+
+**STEER** is an interpretable deep learning framework for **RNA velocity inference** that integrates **spatial-temporal information**, **graph attention**, and a **kinetically guided mixture-of-experts architecture**. It is designed to address heterogeneous kinetic regimes that are common in complex tissues and can hinder both velocity inference and interpretability.
 
 <div class="grid cards" markdown>
 
-- :material-rocket-launch: **Quick Start**
+-   :material-rocket-launch: **Quick Start**
 
     ---
 
@@ -12,7 +14,7 @@
 
     [Open Quick Start](quickstart.md)
 
-- :material-tools: **Installation**
+-   :material-tools: **Installation**
 
     ---
 
@@ -20,7 +22,7 @@
 
     [Open Installation Guide](installation.md)
 
-- :material-book-open-page-variant: **Tutorials**
+-   :material-book-open-page-variant: **Tutorials**
 
     ---
 
@@ -28,7 +30,7 @@
 
     [Browse Tutorials](tutorials/index.md)
 
-- :material-format-quote-close: **Citation**
+-   :material-format-quote-close: **Citation**
 
     ---
 
@@ -40,61 +42,71 @@
 
 ## Overview
 
-STEER is designed for researchers who want an interpretable framework for RNA velocity inference rather than a purely black-box predictor. By integrating spatial-temporal gene expression signals with graph attention mechanisms, STEER aims to model cell-state dynamics in a way that is both expressive and biologically informative.
+RNA velocity provides a powerful framework for understanding cell-state dynamics by modeling spliced and unspliced mRNA captured by single-cell or spatial transcriptomic technologies. However, many existing approaches rely on restrictive kinetic assumptions and may struggle in the presence of heterogeneous kinetic regimes, especially in complex biological tissues.
 
-The framework supports multiple stages of analysis, including model training, visualization, prior construction, and downstream utilities for single-cell and spatial transcriptomics studies.
+STEER was developed to address this problem through a flexible and interpretable framework that combines:
+
+- **Spatially informed graph-attention auto-encoding**
+- **Kinetically guided mixture-of-experts modeling**
+- **Cell-gene-specific kinetic rate inference**
+- **Cell-level latent time estimation**
+
+By assigning cells to expert-defined kinetic regimes, STEER helps disentangle kinetically and spatially mixed populations and supports biologically meaningful downstream analysis.
+
+## Method Overview
+
+STEER integrates cellular-context learning with kinetic-systems-aware modeling. The method figure below summarizes the overall workflow, including graph construction, graph attention auto-encoding, kinetic regime decomposition, expert-specific parameter inference, and downstream spatio-temporal analysis.
+
+![STEER method overview](assets/figure1_github.png)
 
 ## Key Features
 
-- **Interpretable RNA velocity inference** based on a Spatial-Temporal Explainable Expert architecture.
-- **Graph-attention-based modeling** for capturing structured relationships in complex transcriptomics data.
-- **Support for spatial and single-cell dynamics** across different experimental settings.
-- **Modular workflow design** covering training, visualization, prior construction, and utility functions.
-- **Tutorial-oriented usage** with both end-to-end examples and preprocessing pipelines for major spatial platforms.
+- **Interpretable RNA velocity inference** in heterogeneous kinetic settings
+- **Spatial-temporal modeling** for single-cell and spatial transcriptomics
+- **Graph-attention-based representation learning**
+- **Mixture-of-experts decomposition** for kinetic disentangling
+- **Cell-gene-specific kinetic parameter inference**
+- **Latent time learning and downstream spatio-temporal analysis**
 
 ## Documentation Guide
 
-This documentation is organized around the typical STEER workflow:
+This documentation is organized around the main STEER workflow:
 
 1. **Installation**  
-   Set up the required Python environment, PyTorch, PyG libraries, and optional R dependencies such as `mclust`.
+   Prepare the Python environment, PyTorch, PyG libraries, and optional R dependencies.
 
 2. **Quick Start**  
-   Run the main STEER workflow when your input data already contains `spliced` and `unspliced` layers.
+   Run STEER directly if your input `.h5ad` already contains `spliced` and `unspliced` layers.
 
 3. **Tutorials**  
-   Follow the end-to-end STEER pipeline or choose a platform-specific preprocessing route if spliced/unspliced matrices still need to be generated from raw data.
+   Follow the core demo or choose a platform-specific preprocessing route for generating spliced/unspliced matrices from raw data.
 
 4. **Citation**  
-   Copy the published reference and DOI for manuscripts, presentations, or supplementary materials.
+   Use the published paper reference and DOI in manuscripts, slides, and supplementary materials.
 
-## Tutorials and Preprocessing Workflows
+## Available Tutorials
 
-STEER currently provides a core model tutorial together with preprocessing guidance for several major spatial transcriptomics platforms.
-
-Available routes include:
+Current tutorial routes include:
 
 - **STEER Core Pipeline Demo**
 - **Slide-seq Pipeline**
 - **10x Visium Pipeline**
 - **Stereo-seq Pipeline**
 
-If your input `.h5ad` file already contains `spliced` and `unspliced` layers, you can directly run STEER without additional preprocessing. Otherwise, the platform-specific tutorials can help generate these matrices from raw sequencing data.
+If your input data already includes `spliced` and `unspliced` layers, you can directly apply the STEER workflow. Otherwise, please refer to the platform-specific preprocessing tutorials.
 
-## Installation Note
+## Biological Scope
 
-We recommend using a virtual environment such as `conda` with **Python 3.9+**. Some STEER features additionally require **R** and the `mclust` package. The installation page provides suggested environment setups tested during development, including GPU-oriented examples based on PyTorch and PyG.
-
-[Go to Installation](installation.md)
+In benchmarking on synthetic and challenging real-world datasets, STEER demonstrated robust performance and improved interpretability. In particular, it revealed spatiotemporally complementary immunoregulatory programs at the maternal–fetal interface of mouse uterus.
 
 ## Source Code
 
-The STEER source code, issue tracker, and repository history are available on GitHub:
+The STEER repository is available on GitHub:
 
 [STEER on GitHub](https://github.com/lzygenomics/STEER)
 
 ## Contact
 
-If you encounter any issues or have questions, feel free to open an issue on GitHub or contact:
+If you encounter any issues or have questions, please open an issue on GitHub or contact:
 
 **lzy_math@163.com**

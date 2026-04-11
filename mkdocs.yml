@@ -1,57 +1,38 @@
 site_name: STEER
-site_description: Spatial-Temporal Explainable Expert model for RNA velocity inference
-site_author: lzygenomics
-site_url: !ENV [READTHEDOCS_CANONICAL_URL, '']
+site_url: https://steer.readthedocs.io/
 repo_url: https://github.com/lzygenomics/STEER
 repo_name: lzygenomics/STEER
-edit_uri: edit/master/docs/
-
-nav:
-  - Home: index.md
-  - Installation: installation.md
-  - Quick Start: quickstart.md
-  - Tutorials:
-      - Overview: tutorials/index.md
-      - Core Pipeline: tutorials/core-pipeline.md
-      - Slide-seq Preprocessing: tutorials/slide-seq.md
-      - 10x Visium Preprocessing: tutorials/visium.md
-      - Stereo-seq Preprocessing: tutorials/stereo-seq.md
-  - Citation: citation.md
-  - FAQ: faq.md
 
 theme:
   name: material
-  language: en
-  logo: assets/images/steer-logo.svg
-  favicon: assets/images/steer-logo.svg
+  logo: assets/images/steer_logo.png
+  favicon: assets/images/steer_logo.png
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.top
-    - navigation.footer
     - content.code.copy
-    - content.action.edit
+    - content.code.annotate
     - search.suggest
     - search.highlight
-    - toc.follow
+    - toc.integrate
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: teal
-      accent: indigo
+    - scheme: default
+      primary: white
+      accent: teal
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: teal
-      accent: indigo
+    - scheme: slate
+      primary: black
+      accent: teal
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
 
 plugins:
   - search
+  - mkdocs-jupyter
 
 markdown_extensions:
   - admonition
@@ -71,14 +52,17 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
-extra_css:
-  - assets/stylesheets/extra.css
-
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/lzygenomics/STEER
-    - icon: fontawesome/solid/paper-plane
-      link: mailto:lzy_math@163.com
-
-copyright: Copyright © 2026 STEER contributors
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quickstart.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Core Pipeline Notebook: notebooks/demo_tutorial.ipynb
+      - Main Figures: tutorials/main-figures.md
+      - Figure 2 Notebook: notebooks/Figure2.ipynb
+      - Figure 3 Notebook: notebooks/Figure3.ipynb
+      - Figure 4 Notebook: notebooks/Figure4.ipynb
+      - Figure 5 Notebook: notebooks/Figure5.ipynb
+      - Raw Data Preprocessing: tutorials/raw-data-preprocessing.md
+  - Citation: citation.md

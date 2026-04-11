@@ -1,50 +1,59 @@
 # Quick Start
 
-This page is the shortest path from installation to a first successful run.
+## Purpose
+
+This page is the main entry point for users who want to run the core STEER workflow.
+
+The primary quick-start resource in the repository is:
+
+- `tutorials/demo_tutorial.ipynb`
+
+This notebook serves as the central STEER pipeline demonstration and is the recommended starting point for most users.
 
 ## Before you begin
 
-STEER can be run directly when your input `.h5ad` already contains **`spliced`** and **`unspliced`** layers. If not, start from one of the preprocessing tutorials instead.[^tutorials]
+STEER can be run directly when your input `.h5ad` file already contains:
 
-## Typical workflow
+- `spliced`
+- `unspliced`
 
-```python
-# Example skeleton only — replace with your real notebook commands.
-import scanpy as sc
+If these layers are not yet available, please start from the raw-data preprocessing tutorials instead.
 
-adata = sc.read_h5ad("your_data.h5ad")
+## Recommended starting path
 
-# TODO: add the exact STEER API calls used in your notebook
-# model = ...
-# result = ...
-# result.plot(...)
-```
+For most users, the recommended order is:
 
-## Suggested quick-start structure
+1. Complete the installation
+2. Open the **Core Pipeline Notebook** page in this documentation site
+3. Prepare or load an input `.h5ad`
+4. Run the core STEER workflow
+5. Explore downstream velocity-related analyses
 
-Use this page to document the minimum reproducible workflow:
+## Repository resources
 
-1. load a prepared `.h5ad`
-2. initialize the STEER model
-3. train or infer velocity
-4. save outputs
-5. visualize the main result
+The following repository resources are most relevant to the quick-start workflow:
 
-## What to add here next
+- **Core demo notebook**: `tutorials/demo_tutorial.ipynb`
+- **Demo data directory**: `tutorials/demo_data/`
 
-To make this page truly useful, copy the essential commands from your core notebook and keep this page under 5 minutes of reading time.
+Repository links:
 
-Recommended additions:
+- [Open core demo notebook on GitHub](https://github.com/lzygenomics/STEER/tree/master/tutorials/demo_tutorial.ipynb)
+- [Open demo data directory on GitHub](https://github.com/lzygenomics/STEER/tree/master/tutorials/demo_data)
 
-- exact notebook link
-- one toy example dataset
-- expected runtime and GPU requirement
-- one output figure
-- one troubleshooting note for import/version issues
+## What this quick start is for
 
-## Core demo
+The core demo notebook is the best entry point if you want to:
 
-The repository already points users to a **STEER Core Pipeline Demo** notebook.[^tutorials]
-That notebook should become the source for this page.
+- understand the standard STEER workflow
+- run the model on prepared data
+- inspect expected inputs and outputs
+- get a practical overview before moving on to figure notebooks or preprocessing pipelines
 
-[^tutorials]: The README states that STEER provides an end-to-end core pipeline notebook and platform-specific preprocessing tutorials. citeturn259328view1
+## Next steps
+
+After completing the quick start, you can continue with:
+
+- **Main Figures** for paper-oriented analyses
+- **Raw Data Preprocessing** if your data does not yet include spliced/unspliced layers
+- **Citation** if you are preparing a manuscript or presentation
