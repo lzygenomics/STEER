@@ -1,77 +1,100 @@
 # STEER
 
-**STEER** is a graph-attention-based **Spatial-Temporal Explainable Expert** framework for **RNA velocity inference**. It leverages spatial-temporal gene expression information and provides modules for training, visualization, prior construction, and utilities for single-cell and spatial dynamics.[^repo]
+**STEER** is a graph-attention-based **Spatial-Temporal Explainable Expert** model for **RNA velocity inference**. It is a deep learning framework that leverages spatial-temporal gene expression information and graph attention mechanisms to perform interpretable RNA velocity inference. STEER provides modules for training, visualization, prior construction, and utilities tailored to single-cell and spatial dynamics.
 
 <div class="grid cards" markdown>
 
--   :material-rocket-launch: **Quick start**
+- :material-rocket-launch: **Quick Start**
 
     ---
 
-    Install STEER and run the core workflow.
+    Install STEER and run the core workflow on prepared data.
 
-    [Open quick start](quickstart.md)
+    [Open Quick Start](quickstart.md)
 
--   :material-book-open-page-variant: **Tutorials**
-
-    ---
-
-    Follow end-to-end examples and platform-specific preprocessing notes.
-
-    [Browse tutorials](tutorials/index.md)
-
--   :material-github: **Source code**
+- :material-tools: **Installation**
 
     ---
 
-    View the repository, issues, and release history.
+    Set up Python, PyTorch, PyG, and optional R dependencies.
 
-    [Open GitHub](https://github.com/lzygenomics/STEER)
+    [Open Installation Guide](installation.md)
 
--   :material-format-quote-close: **Citation**
+- :material-book-open-page-variant: **Tutorials**
 
     ---
 
-    Use the published reference when citing STEER in your work.
+    Explore the core pipeline and platform-specific preprocessing workflows.
 
-    [See citation](citation.md)
+    [Browse Tutorials](tutorials/index.md)
+
+- :material-format-quote-close: **Citation**
+
+    ---
+
+    Use the published reference and DOI when citing STEER.
+
+    [See Citation](citation.md)
 
 </div>
 
-## Why STEER?
+## Overview
 
-STEER is intended for researchers who want more than a black-box velocity estimate. The current repository presents it as an interpretable deep-learning framework that combines spatial-temporal structure with graph attention for RNA velocity inference.[^repo]
+STEER is designed for researchers who want an interpretable framework for RNA velocity inference rather than a purely black-box predictor. By integrating spatial-temporal gene expression signals with graph attention mechanisms, STEER aims to model cell-state dynamics in a way that is both expressive and biologically informative.
 
-### Highlights
+The framework supports multiple stages of analysis, including model training, visualization, prior construction, and downstream utilities for single-cell and spatial transcriptomics studies.
 
-- **Interpretable modeling** for RNA velocity inference.
-- **Spatially aware workflows** for modern transcriptomics data.
-- **Tutorial-first organization** including a core pipeline and multiple preprocessing routes.[^tutorials]
-- **Research-ready citation information** with a DOI already available.[^citation]
+## Key Features
 
-## Documentation map
+- **Interpretable RNA velocity inference** based on a Spatial-Temporal Explainable Expert architecture.
+- **Graph-attention-based modeling** for capturing structured relationships in complex transcriptomics data.
+- **Support for spatial and single-cell dynamics** across different experimental settings.
+- **Modular workflow design** covering training, visualization, prior construction, and utility functions.
+- **Tutorial-oriented usage** with both end-to-end examples and preprocessing pipelines for major spatial platforms.
 
-This starter site is organized to match how most users approach a scientific software package:
+## Documentation Guide
 
-1. **Installation** — set up Python, PyTorch, PyG, and R dependencies.
-2. **Quick Start** — run the main STEER workflow on prepared data.
-3. **Tutorials** — choose a platform-specific preprocessing route when your data does not yet contain `spliced` and `unspliced` layers.
-4. **Citation** — copy the manuscript reference and DOI.
+This documentation is organized around the typical STEER workflow:
 
-## What you should customize next
+1. **Installation**  
+   Set up the required Python environment, PyTorch, PyG libraries, and optional R dependencies such as `mclust`.
 
-This scaffold is ready to publish, but you should replace placeholders with project-specific detail where possible:
+2. **Quick Start**  
+   Run the main STEER workflow when your input data already contains `spliced` and `unspliced` layers.
 
-- add screenshots or figures from your paper
-- add exact notebook links for each tutorial page
-- add one minimal reproducible example dataset
-- add output plots to show what STEER produces
-- add a changelog once releases become frequent
+3. **Tutorials**  
+   Follow the end-to-end STEER pipeline or choose a platform-specific preprocessing route if spliced/unspliced matrices still need to be generated from raw data.
+
+4. **Citation**  
+   Copy the published reference and DOI for manuscripts, presentations, or supplementary materials.
+
+## Tutorials and Preprocessing Workflows
+
+STEER currently provides a core model tutorial together with preprocessing guidance for several major spatial transcriptomics platforms.
+
+Available routes include:
+
+- **STEER Core Pipeline Demo**
+- **Slide-seq Pipeline**
+- **10x Visium Pipeline**
+- **Stereo-seq Pipeline**
+
+If your input `.h5ad` file already contains `spliced` and `unspliced` layers, you can directly run STEER without additional preprocessing. Otherwise, the platform-specific tutorials can help generate these matrices from raw sequencing data.
+
+## Installation Note
+
+We recommend using a virtual environment such as `conda` with **Python 3.9+**. Some STEER features additionally require **R** and the `mclust` package. The installation page provides suggested environment setups tested during development, including GPU-oriented examples based on PyTorch and PyG.
+
+[Go to Installation](installation.md)
+
+## Source Code
+
+The STEER source code, issue tracker, and repository history are available on GitHub:
+
+[STEER on GitHub](https://github.com/lzygenomics/STEER)
 
 ## Contact
 
-Questions, issues, or collaboration requests can go through the GitHub issue tracker or the contact email listed in the repository: `lzy_math@163.com`.[^repo]
+If you encounter any issues or have questions, feel free to open an issue on GitHub or contact:
 
-[^repo]: The STEER README describes the method, install flow, tutorials, and contact details. citeturn259328view0turn259328view3
-[^tutorials]: The repository currently lists a core demo plus Slide-seq, 10x Visium, and Stereo-seq preprocessing pipelines. citeturn259328view1
-[^citation]: The README includes the published citation and DOI. citeturn259328view2turn259328view4
+**lzy_math@163.com**
