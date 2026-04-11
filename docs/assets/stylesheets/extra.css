@@ -1,0 +1,17 @@
+.md-header {
+  backdrop-filter: saturate(180%) blur(10px);
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-radius: 1rem;
+}
+
+.hero-subtitle {
+  font-size: 1.1rem;
+  opacity: 0.85;
+}
