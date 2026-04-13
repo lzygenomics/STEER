@@ -2,17 +2,31 @@
 
 The STEER tutorial system is organized to match the actual structure of the GitHub repository. The main tutorial resources currently fall into three groups:
 
-1. **Core pipeline**
+1. **Quick start and core pipeline**
 2. **Main figure notebooks**
 3. **Raw-data preprocessing**
 
-## 1. Core pipeline
+## 1. Quick start and core pipeline
 
-The main entry point for using STEER is the core demo notebook:
+The recommended first entry point for using STEER is the structured quick start notebook:
+
+- `docs/notebooks/quickstart.ipynb`
+
+This notebook is intended for first-time users. It introduces the main STEER workflow in a more guided and explanatory format, including input requirements, the major training stages, and key parameter choices.
+
+You can access it in this documentation site through:
+
+- **Quick Start Notebook**
+
+You can also browse the file on GitHub:
+
+- [quickstart.ipynb](https://github.com/lzygenomics/STEER/blob/master/docs/notebooks/quickstart.ipynb)
+
+An additional reference notebook for the core pipeline is also available:
 
 - `tutorials/demo_tutorial.ipynb`
 
-This is the recommended starting point for most users. It introduces the standard workflow for running STEER on prepared input data.
+This notebook presents the main STEER pipeline in a more compact form and remains useful as a reference example for prepared input data.
 
 You can access it in this documentation site through:
 
@@ -66,6 +80,7 @@ Choose your path according to your goal.
 
 Start with:
 
+- **Quick Start Notebook**
 - **Core Pipeline Notebook**
 
 ### I want to reproduce or understand the paper’s main analyses

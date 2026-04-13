@@ -58,6 +58,7 @@ nav:
   - Quick Start: quickstart.md
   - Tutorials:
       - Overview: tutorials/index.md
+      - Quick Start Notebook: notebooks/quickstart.ipynb
       - Core Pipeline Notebook: notebooks/demo_tutorial.ipynb
       - Main Figures: tutorials/main-figures.md
       - Figure 2 Notebook: notebooks/Figure2.ipynb

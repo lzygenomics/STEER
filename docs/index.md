@@ -10,7 +10,7 @@
 
     ---
 
-    Install STEER and run the core workflow on prepared data.
+    Start with the structured quick start notebook for prepared spatial transcriptomics data.
 
     [Open Quick Start](quickstart.md)
 
@@ -76,10 +76,10 @@ This documentation is organized around the main STEER workflow:
    Prepare the Python environment, PyTorch, PyG libraries, and optional R dependencies.
 
 2. **Quick Start**  
-   Run STEER directly if your input `.h5ad` already contains `spliced` and `unspliced` layers.
+   Start with the guided quick start notebook if your input `.h5ad` already contains `spliced`, `unspliced`, and spatial coordinates.
 
 3. **Tutorials**  
-   Follow the core demo or choose a platform-specific preprocessing route for generating spliced/unspliced matrices from raw data.
+   Follow the quick start notebook, the core demo, or a platform-specific preprocessing route for generating spliced/unspliced matrices from raw data.
 
 4. **Citation**  
    Use the published paper reference and DOI in manuscripts, slides, and supplementary materials.
@@ -88,12 +88,13 @@ This documentation is organized around the main STEER workflow:
 
 Current tutorial routes include:
 
+- **STEER Quick Start Notebook**
 - **STEER Core Pipeline Demo**
 - **Slide-seq Pipeline**
 - **10x Visium Pipeline**
 - **Stereo-seq Pipeline**
 
-If your input data already includes `spliced` and `unspliced` layers, you can directly apply the STEER workflow. Otherwise, please refer to the platform-specific preprocessing tutorials.
+If your input data already includes `spliced` and `unspliced` layers, you can directly apply the STEER workflow. For the spatial quick start shown in this documentation, `X_spatial` is also expected. Otherwise, please refer to the platform-specific preprocessing tutorials.
 
 ## Biological Scope
 
