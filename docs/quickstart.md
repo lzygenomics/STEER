@@ -6,7 +6,7 @@ This page is the main entry point for users who want to run the core STEER workf
 
 The recommended first notebook is:
 
-- `docs/notebooks/quickstart.ipynb`
+- [Quick Start Notebook](notebooks/quickstart.ipynb)
 
 This notebook is designed for first-time users and presents the STEER workflow in a more structured, guided format.
 
@@ -25,7 +25,7 @@ If these layers are not yet available, please start from the raw-data preprocess
 For most users, the recommended order is:
 
 1. Complete the installation
-2. Open the **Quick Start Notebook** page in this documentation site
+2. Open the [Quick Start Notebook](notebooks/quickstart.ipynb)
 3. Prepare or load an input `.h5ad`
 4. Run the core STEER workflow
 5. Explore downstream velocity-related analyses
@@ -34,9 +34,9 @@ For most users, the recommended order is:
 
 The following repository resources are most relevant to the quick-start workflow:
 
-- **Quick start notebook**: `docs/notebooks/quickstart.ipynb`
-- **Core demo notebook**: `tutorials/demo_tutorial.ipynb`
-- **Demo data directory**: `tutorials/demo_data/`
+- [Quick Start Notebook](notebooks/quickstart.ipynb)
+- [Core Pipeline Notebook](notebooks/demo_tutorial.ipynb)
+- Demo data directory: `tutorials/demo_data/`
 
 Repository links:
 
@@ -65,6 +65,6 @@ You can access the notebook directly in the documentation:
 
 After completing the quick start, you can continue with:
 
-- **Main Figures** for paper-oriented analyses
-- **Raw Data Preprocessing** if your data does not yet include spliced/unspliced layers
-- **Citation** if you are preparing a manuscript or presentation
+- [Main Figures](tutorials/main-figures.md) for paper-oriented analyses
+- [Raw Data Preprocessing](tutorials/raw-data-preprocessing.md) if your data does not yet include spliced/unspliced layers
+- [Citation](citation.md) if you are preparing a manuscript or presentation

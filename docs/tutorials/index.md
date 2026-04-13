@@ -1,104 +1,42 @@
 # Tutorials
 
-The STEER tutorial system is organized to match the actual structure of the GitHub repository. The main tutorial resources currently fall into three groups:
+This page is a simple guide to the main STEER tutorial routes.
 
-1. **Quick start and core pipeline**
-2. **Main figure notebooks**
-3. **Raw-data preprocessing**
+## Start here
 
-## 1. Quick start and core pipeline
+If your `.h5ad` already contains `spliced` and `unspliced`, the recommended first notebook is:
 
-The recommended first entry point for using STEER is the structured quick start notebook:
+- [Quick Start Notebook](../notebooks/quickstart.ipynb)
 
-- `docs/notebooks/quickstart.ipynb`
+This notebook is the best entry point for first-time users. It explains the main workflow, key parameters, and the major training stages in a guided format.
 
-This notebook is intended for first-time users. It introduces the main STEER workflow in a more guided and explanatory format, including input requirements, the major training stages, and key parameter choices.
+If you also want a more compact reference version of the main pipeline, see:
 
-You can access it in this documentation site through:
+- [Core Pipeline Notebook](../notebooks/demo_tutorial.ipynb)
 
-- **Quick Start Notebook**
+## Choose a path
 
-You can also browse the file on GitHub:
+- If you want to run STEER as quickly as possible, start with [Quick Start Notebook](../notebooks/quickstart.ipynb).
+- If you want a concise reference workflow, open [Core Pipeline Notebook](../notebooks/demo_tutorial.ipynb).
+- If you want to reproduce paper analyses, continue to [Main Figures](main-figures.md).
+- If your data does not yet contain `spliced` and `unspliced`, begin with [Raw Data Preprocessing](raw-data-preprocessing.md).
+
+## Figure notebooks
+
+For figure-level analyses, the following notebooks are available:
+
+- [Figure 2 Notebook](../notebooks/Figure2.ipynb)
+- [Figure 3 Notebook](../notebooks/Figure3.ipynb)
+- [Figure 4 Notebook](../notebooks/Figure4.ipynb)
+- [Figure 5 Notebook](../notebooks/Figure5.ipynb)
+
+## Repository files
+
+If you prefer to browse the original files on GitHub:
 
 - [quickstart.ipynb](https://github.com/lzygenomics/STEER/blob/master/docs/notebooks/quickstart.ipynb)
-
-An additional reference notebook for the core pipeline is also available:
-
-- `tutorials/demo_tutorial.ipynb`
-
-This notebook presents the main STEER pipeline in a more compact form and remains useful as a reference example for prepared input data.
-
-You can access it in this documentation site through:
-
-- **Core Pipeline Notebook**
-
-You can also browse the original file on GitHub:
-
 - [demo_tutorial.ipynb](https://github.com/lzygenomics/STEER/tree/master/tutorials/demo_tutorial.ipynb)
-
-## 2. Main figure notebooks
-
-The repository contains a dedicated notebook collection for the main figure-related analyses:
-
-- `tutorials/NoteBook_Main_Figures/Figure2.ipynb`
-- `tutorials/NoteBook_Main_Figures/Figure3.ipynb`
-- `tutorials/NoteBook_Main_Figures/Figure4.ipynb`
-- `tutorials/NoteBook_Main_Figures/Figure5.ipynb`
-
-These notebooks are especially useful for users who want to understand how the main analyses and figure-level results in the STEER study were generated.
-
-Please see the **Main Figures** page for a guided overview, or open the notebook pages directly from the site navigation.
-
-Original GitHub files:
-
 - [Figure2.ipynb](https://github.com/lzygenomics/STEER/tree/master/tutorials/NoteBook_Main_Figures/Figure2.ipynb)
 - [Figure3.ipynb](https://github.com/lzygenomics/STEER/tree/master/tutorials/NoteBook_Main_Figures/Figure3.ipynb)
 - [Figure4.ipynb](https://github.com/lzygenomics/STEER/tree/master/tutorials/NoteBook_Main_Figures/Figure4.ipynb)
 - [Figure5.ipynb](https://github.com/lzygenomics/STEER/tree/master/tutorials/NoteBook_Main_Figures/Figure5.ipynb)
-
-## 3. Raw-data preprocessing
-
-If your input data does not yet contain `spliced` and `unspliced` layers, please begin with the preprocessing resources under:
-
-- `tutorials/raw_data_processing/`
-
-These tutorials are designed for generating the matrices needed before running the core STEER workflow.
-
-This section includes platform-specific routes such as:
-
-- Slide-seq
-- 10x Visium
-- Stereo-seq
-
-Please see the **Raw Data Preprocessing** page for a structured summary.
-
-## Recommended learning path
-
-Choose your path according to your goal.
-
-### I want to run STEER as quickly as possible
-
-Start with:
-
-- **Quick Start Notebook**
-- **Core Pipeline Notebook**
-
-### I want to reproduce or understand the paper’s main analyses
-
-Continue with:
-
-- **Main Figures**
-- **Figure 2 Notebook**
-- **Figure 3 Notebook**
-- **Figure 4 Notebook**
-- **Figure 5 Notebook**
-
-### My data does not yet contain spliced/unspliced matrices
-
-Start with:
-
-- **Raw Data Preprocessing**
-
-## Tutorial philosophy
-
-These documentation pages are intended to mirror the real repository layout rather than abstracting away the notebook structure. This makes it easier for users to move between the documentation site and the GitHub repository without losing context.
