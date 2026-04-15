@@ -1,2 +1,11 @@
 .DS_Store
 **/.DS_Store
+
+# Python cache and packaging artifacts
+__pycache__/
+**/__pycache__/
+*.egg-info/
+**/*.egg-info/
+
+# Local notebook outputs copied outside docs
+tutorials/quickstart.ipynb
