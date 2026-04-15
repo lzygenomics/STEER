@@ -9,6 +9,143 @@ from scipy.interpolate import LSQUnivariateSpline
 import anndata as ad
 from sklearn.cluster import MiniBatchKMeans
 from ..plot import plot_entropy
+from joblib import Parallel, delayed
+from scipy.sparse import issparse
+
+def _process_single_gene(gene_idx, gene_name, s_vec, u_vec, cluster_indices):
+    results = []
+
+    for cluster_label, cell_indices in cluster_indices.items():
+        x_cluster = s_vec[cell_indices]
+        y_cluster = u_vec[cell_indices]
+
+        if len(np.unique(x_cluster)) < 10 or len(np.unique(y_cluster)) < 10:
+            results.append({
+                'cell_indices': cell_indices,
+                'type': 'Auto',
+                'gene_idx': gene_idx
+            })
+            continue
+
+        try:
+            fs, ps, ds = compute_convexity(x_cluster, y_cluster)
+            fu, pu, du = compute_convexity(y_cluster, x_cluster)
+
+            res = {
+                'cell_indices': cell_indices,
+                'gene_idx': gene_idx,
+                'du': du, 'ds': ds, 'fu': fu, 'fs': fs, 'pu': pu, 'ps': ps,
+                'type': None, 'group': None, 'conf': 0.0
+            }
+
+            if (fs > 0) & (fu < 0):
+                res['type'] = 'Down'
+                res['group'] = 'Compo_Down'
+                res['conf'] = min(pu, ps)
+            elif (fs < 0) & (fu > 0):
+                res['type'] = 'Up'
+                res['group'] = 'Compo_Up'
+                res['conf'] = min(pu, ps)
+            elif pu <= ps:
+                if fu > 0:
+                    res['type'] = 'Up'
+                    res['group'] = 'Compo_Up'
+                    res['conf'] = pu
+                else:
+                    res['type'] = 'Down'
+                    res['group'] = 'Compo_Down'
+                    res['conf'] = pu
+            elif ps < pu:
+                if fs > 0:
+                    res['type'] = 'Down'
+                    res['group'] = 'Compo_Down'
+                    res['conf'] = ps
+                else:
+                    res['type'] = 'Up'
+                    res['group'] = 'Compo_Up'
+                    res['conf'] = ps
+
+            results.append(res)
+
+        except Exception:
+            continue
+
+    return results
+
+def pred_regulation_anndata_parallel(adata, n_jobs=-1):
+    gene_names = adata.var_names
+
+    if 'pred_cluster' not in adata.obs:
+         raise KeyError("adata.obs must contain 'pred_cluster'")
+
+    unique_clusters = adata.obs['pred_cluster'].unique()
+    cluster_indices = {
+        cls: np.where(adata.obs['pred_cluster'] == cls)[0]
+        for cls in unique_clusters
+    }
+
+    S_mat = adata.layers['scale_Ms']
+    U_mat = adata.layers['scale_Mu']
+
+    is_sparse = issparse(S_mat)
+    if is_sparse:
+        print("Converting layers to CSC format for efficient column slicing...")
+        S_mat = S_mat.tocsc()
+        U_mat = U_mat.tocsc()
+
+    print(f"Starting parallel processing with n_jobs={n_jobs}...")
+
+    results_list = Parallel(n_jobs=n_jobs, verbose=5)(
+        delayed(_process_single_gene)(
+            i,
+            gene,
+            S_mat[:, i].toarray().flatten() if is_sparse else S_mat[:, i],
+            U_mat[:, i].toarray().flatten() if is_sparse else U_mat[:, i],
+            cluster_indices
+        )
+        for i, gene in enumerate(gene_names)
+    )
+
+    n_cells, n_genes = adata.shape
+
+    pred_cell_type = np.zeros((n_cells, n_genes), dtype='U10')
+    pred_group_type = np.zeros((n_cells, n_genes), dtype='U10')
+    confidence = np.zeros((n_cells, n_genes), dtype=float)
+
+    metrics_maps = {
+        'du': np.zeros((n_cells, n_genes), dtype=float),
+        'ds': np.zeros((n_cells, n_genes), dtype=float),
+        'fu': np.zeros((n_cells, n_genes), dtype=float),
+        'fs': np.zeros((n_cells, n_genes), dtype=float),
+        'pu': np.zeros((n_cells, n_genes), dtype=float),
+        'ps': np.zeros((n_cells, n_genes), dtype=float),
+    }
+
+    print("Aggregating results...")
+    for gene_results in results_list:
+        for res in gene_results:
+            c_idxs = res['cell_indices']
+            g_idx = res['gene_idx']
+
+            if res.get('type'):
+                pred_cell_type[c_idxs, g_idx] = res['type']
+            if res.get('group'):
+                pred_group_type[c_idxs, g_idx] = res['group']
+            if res.get('conf'):
+                confidence[c_idxs, g_idx] = res['conf']
+
+            for key in metrics_maps:
+                if key in res:
+                    metrics_maps[key][c_idxs, g_idx] = res[key]
+
+    adata.layers['pred_cell_type'] = pred_cell_type
+    adata.layers['pred_group_type'] = pred_group_type
+    adata.layers['confidence'] = confidence
+    for key, arr in metrics_maps.items():
+        adata.layers[key] = arr
+
+    print("Done.")
+    return adata
 
 
 def use_scaled_orig(df, use_orig = False):
@@ -372,11 +509,12 @@ def pred_regulation_anndata(adata):
     return adata
 
 class PriorInferenceManager:
-    def __init__(self, adata, df, result_path, seed=618):
+    def __init__(self, adata, df, result_path, seed=618, n_jobs=-1):
         self.adata = adata
         self.df = df
         self.result_path = result_path
         self.seed = seed
+        self.n_jobs = n_jobs
         
         # 备份原始 Expert Cluster (假设初始的 pred_cluster 就是 Expert)
         if 'expert_cluster' not in self.adata.obs:
@@ -480,16 +618,17 @@ class PriorInferenceManager:
             
         return self.adata
 
-    def task3_calc_convexity(self, based_on='expert'):
+    def task3_calc_convexity(self, based_on='expert', n_jobs=None):
         """
         任务 3: 计算凸性 (Prior Direction)
         """
         print(f"--- Task 3: Calculating Direction (Based on: {based_on.upper()}) ---")
         target_col = 'expert_cluster' if based_on == 'expert' else 'fine_cluster'
+        resolved_n_jobs = self.n_jobs if n_jobs is None else n_jobs
         # 关键：切换 mapping，让 pred_regulation 看到正确的列
         self.adata, self.df = self._update_mapping(target_col)
         # 计算
-        self.adata = pred_regulation_anndata(self.adata)
+        self.adata = pred_regulation_anndata_parallel(self.adata, n_jobs=resolved_n_jobs)
         return self.adata
     
     def finalize_for_training(self):

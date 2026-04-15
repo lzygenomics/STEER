@@ -2,6 +2,8 @@ import scvelo as scv
 import pandas as pd
 import anndata
 import numpy as np
+import os
+import tempfile
 from sklearn.neighbors import NearestNeighbors
 import torch
 from torch.utils.data import Dataset
@@ -1161,6 +1163,63 @@ def normalize_l2_anndata(adata, layer_vu='pred_vu', layer_vs='pred_vs'):
 
     return adata
 
+def compute_embedding_umap(
+    adata,
+    embedding_key,
+    output_key=None,
+    pca_output_key=None,
+    neighbors_key=None,
+    n_neighbors=30,
+    use_pca=False,
+    n_pcs=30,
+    random_state=618,
+    copy=False,
+):
+    if embedding_key not in adata.obsm:
+        raise ValueError(f"Embedding '{embedding_key}' was not found in adata.obsm.")
+
+    target = adata.copy() if copy else adata
+    embedding = np.asarray(target.obsm[embedding_key])
+    if embedding.ndim != 2:
+        raise ValueError(
+            f"Embedding '{embedding_key}' must be a 2D array, but received shape {embedding.shape}."
+        )
+
+    if output_key is None:
+        if embedding_key.startswith('X_'):
+            output_key = f"X_umap_{embedding_key[2:]}"
+        else:
+            output_key = f"{embedding_key}_umap"
+
+    if neighbors_key is None:
+        if embedding_key.startswith('X_'):
+            neighbors_key = f"{embedding_key[2:]}_neighbors"
+        else:
+            neighbors_key = f"{embedding_key}_neighbors"
+
+    rep_key = embedding_key
+    if use_pca:
+        if pca_output_key is None:
+            if embedding_key.startswith('X_'):
+                pca_output_key = f"X_pca_{embedding_key[2:]}"
+            else:
+                pca_output_key = f"{embedding_key}_pca"
+        temp_pca_adata = sc.AnnData(X=embedding.copy())
+        n_components = min(n_pcs, embedding.shape[0] - 1, embedding.shape[1])
+        if n_components < 2:
+            raise ValueError(
+                f"Cannot compute PCA before UMAP for '{embedding_key}' because the embedding is too small."
+            )
+        sc.tl.pca(temp_pca_adata, n_comps=n_components)
+        target.obsm[pca_output_key] = temp_pca_adata.obsm['X_pca']
+        rep_key = pca_output_key
+
+    sc.pp.neighbors(target, n_neighbors=n_neighbors, use_rep=rep_key, key_added=neighbors_key)
+    temp_umap_adata = sc.tl.umap(target, neighbors_key=neighbors_key, random_state=random_state, copy=True)
+    target.obsm[output_key] = temp_umap_adata.obsm['X_umap']
+
+    return target
+
 
 
 def compute_gene_specific_adj(velo_adata, n_neighbors, device):
@@ -1269,6 +1328,98 @@ def downsample_adata_randomly(adata, fraction, seed=618):
     
     # Return the sampled adata object
     return adata[sampled_indices].copy()
+
+def estimate_expert_number(
+    adata,
+    candidate_range=range(2, 11),
+    used_obsm='X_pca_combined',
+    modelNames='EEE',
+    random_seed=618,
+    reg=2,
+    plot=True,
+    save_path=None,
+    plot_title='Cluster Number Selection',
+):
+    candidate_values = sorted({int(value) for value in candidate_range})
+    if len(candidate_values) < 2:
+        raise ValueError("candidate_range must contain at least two distinct integer values.")
+    if candidate_values[0] < 2:
+        raise ValueError("candidate_range must start from 2 or larger for expert estimation.")
+    if used_obsm not in adata.obsm:
+        raise ValueError(f"Embedding '{used_obsm}' was not found in adata.obsm.")
+
+    embedding = np.asarray(adata.obsm[used_obsm])
+    if embedding.ndim != 2:
+        raise ValueError(
+            f"Embedding '{used_obsm}' must be a 2D array, but received shape {embedding.shape}."
+        )
+
+    try:
+        import rpy2.robjects as robjects
+        import rpy2.robjects.numpy2ri
+        from rpy2.robjects.packages import importr
+    except ImportError as exc:
+        raise ImportError(
+            "estimate_expert_number requires rpy2 in the active Python environment."
+        ) from exc
+
+    try:
+        mclust_pkg = importr("mclust")
+        grdevices = importr("grDevices")
+    except Exception as exc:
+        raise ImportError(
+            "estimate_expert_number requires the R package 'mclust' in the active R environment."
+        ) from exc
+
+    rpy2.robjects.numpy2ri.activate()
+    np.random.seed(random_seed)
+    robjects.r["set.seed"](random_seed)
+
+    candidate_vector = robjects.IntVector(candidate_values)
+    mclust_result = mclust_pkg.Mclust(
+        rpy2.robjects.numpy2ri.numpy2rpy(embedding),
+        G=candidate_vector,
+        modelNames=modelNames,
+    )
+    combi_result = mclust_pkg.clustCombi(mclust_result, seed=random_seed)
+    combi_optim = mclust_pkg.clustCombiOptim(combi_result, reg=reg, plot=False)
+
+    recommended_expert = int(np.array(combi_optim.rx2("numClusters.combi"))[0])
+
+    figure_path = None
+    temp_path = None
+    if plot:
+        if save_path:
+            normalized_path = os.path.expanduser(save_path)
+            _, ext = os.path.splitext(normalized_path)
+            if os.path.isdir(normalized_path) or not ext:
+                os.makedirs(normalized_path, exist_ok=True)
+                figure_path = os.path.join(normalized_path, "Cluster_Number_Selection.png")
+            else:
+                figure_path = normalized_path if ext else normalized_path + ".png"
+                os.makedirs(os.path.dirname(figure_path) or ".", exist_ok=True)
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+                temp_path = tmp_file.name
+            figure_path = temp_path
+
+        grdevices.png(file=figure_path, width=800, height=800, res=120)
+        try:
+            mclust_pkg.clustCombiOptim(combi_result, reg=reg, plot=True)
+            robjects.r["title"](main=plot_title)
+        finally:
+            grdevices.dev_off()
+
+    return {
+        "recommended_expert": recommended_expert,
+        "candidate_range": candidate_values,
+        "used_obsm": used_obsm,
+        "modelNames": modelNames,
+        "random_seed": random_seed,
+        "reg": reg,
+        "figure_path": figure_path,
+        "temporary_figure": temp_path is not None,
+    }
 
 def mclust_R(adata, num_cluster, modelNames='EEE', used_obsm='X_pre_embed', random_seed=618):
    

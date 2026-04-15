@@ -79,7 +79,7 @@ This documentation is organized around the main STEER workflow:
    Start with the guided quick start notebook if your input `.h5ad` already contains `spliced`, `unspliced`, and spatial coordinates.
 
 3. **Tutorials**  
-   Follow the quick start notebook, the core demo, or a platform-specific preprocessing route for generating spliced/unspliced matrices from raw data.
+   Follow the quick start notebook or a platform-specific preprocessing route for generating spliced/unspliced matrices from raw data.
 
 4. **Citation**  
    Use the published paper reference and DOI in manuscripts, slides, and supplementary materials.
@@ -89,7 +89,6 @@ This documentation is organized around the main STEER workflow:
 Current tutorial routes include:
 
 - **STEER Quick Start Notebook**
-- **STEER Core Pipeline Demo**
 - **Slide-seq Pipeline**
 - **10x Visium Pipeline**
 - **Stereo-seq Pipeline**

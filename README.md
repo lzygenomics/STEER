@@ -53,15 +53,12 @@ pip install torch-geometric
 
 ## 📖 Tutorials & Example Usage
 
-To help you seamlessly integrate STEER into your research, we provide comprehensive Jupyter Notebooks and pipelines covering from raw data preprocessing to downstream velocity inference.
+For the main STEER workflow, start with the Quick Start notebook in the documentation site:
 
-### 1. Core Model Pipeline
+* 🚀 **[Quick Start Notebook](https://steer.readthedocs.io/en/latest/notebooks/quickstart/)**: The recommended end-to-end tutorial for model configuration, preprocessing, training, and velocity visualization.
+* 📚 **[Documentation Home](https://steer.readthedocs.io/en/latest/)**: Installation, tutorials, notebooks, and figure-related analyses.
 
-We provide an end-to-end example notebook that walks you through the entire STEER workflow:
-
-* 🚀 **[STEER Core Pipeline Demo](./tutorials/)**: Step-by-step interactive usage of the STEER framework.
-
-### 2. Generating Spliced/Unspliced Matrices (Data Preprocessing)
+### Generating Spliced/Unspliced Matrices (Data Preprocessing)
 
 If your input `.h5ad` file already contains `spliced` and `unspliced` layers, you can directly run STEER without additional preprocessing. Otherwise, you may refer to the following pipelines to generate these matrices from raw sequencing data.
 
@@ -73,7 +70,7 @@ A practical challenge in spatial RNA velocity is obtaining spliced and unspliced
 
 ---
 
-**More detailed model descriptions will be available in the Supplementary Materials once the final typeset version is released. A more comprehensive tutorial is also in preparation and will be made available afterwards.**
+**More detailed model descriptions will be available in the Supplementary Materials once the final typeset version is released.**
 
 ---
 

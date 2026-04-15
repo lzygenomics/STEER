@@ -46,6 +46,6 @@ GitHub link:
 
 A practical sequence is:
 
-1. Start with the **Core Pipeline Notebook** to understand the standard workflow
+1. Start with the **Quick Start Notebook** to understand the standard workflow
 2. Then open the figure notebooks to inspect paper-level analyses
 3. Use the original repository folders if you need the complete surrounding context or auxiliary files

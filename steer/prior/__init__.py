@@ -9,6 +9,7 @@ from .prior import (
     add_annotations_to_df,
     add_entropy_to_adata,
     pred_regulation_anndata,
+    pred_regulation_anndata_parallel,
     PriorInferenceManager,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     'add_annotations_to_df',
     'add_entropy_to_adata',
     'pred_regulation_anndata',
+    'pred_regulation_anndata_parallel',
     'PriorInferenceManager',
 ]

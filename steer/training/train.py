@@ -1,4 +1,5 @@
 import copy
+import os
 import torch
 import pandas as pd
 from torch import nn, Tensor
@@ -16,6 +17,10 @@ import scanpy as sc
 # cudnn.benchmark = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
+def _checkpoint_path(path, model_mode):
+    os.makedirs(path, exist_ok=True)
+    return os.path.join(path, f"{model_mode}_GATEVelo_check_point.pth")
 
 class TimePredictionNetwork(nn.Module):
     def __init__(self, input_dim):
@@ -1089,7 +1094,7 @@ def generate_mask(x, mask_ratio=0.1):
 def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, adata, 
                                         NUM_LOSS_NEIGH, max_n_cluster, corr_mode = 'u', 
                                         cos_batch = 100, path = '/HOME/scz3472/run/GATVelo/', mask_train = False, prior_time = None, order = None,
-                                        hidden_size = 512, latent_size = 128, num_epochs = 10000,pretrain_epochs = 1500,cluster_epochs = 1500,time_epochs = 200,warm_up_epochs = 200,expert_mode='original', velo_batch_size=None):
+                                        hidden_size = 512, latent_size = 128, num_epochs = 10000,pretrain_epochs = 1500,cluster_epochs = 1500,time_epochs = 200,warm_up_epochs = 200,expert_mode='original', velo_batch_size=None, MIN_IMPRO=0.001,PATIENCE=1000):
     if MODEL_MODE == 'pretrain':
         use_experts = False
     else:
@@ -1134,8 +1139,8 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
         optimizer, T_0=50, T_mult=2, eta_min=1e-5
     )
     # Early stopping parameters
-    early_stopping_patience = 1000 # 1000 before
-    min_loss_improvement = 0.001
+    early_stopping_patience = PATIENCE # 1000 before
+    min_loss_improvement = MIN_IMPRO
     best_loss = float('inf')
     patience_counter = 0
     best_model_state = None  # 用来暂存最佳参数
@@ -1336,13 +1341,6 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             adata.obs['pred_clus_weight'] = weight
             adata.obsm['X_pre_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors',random_state=618, copy = True)
-            adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
         else:
             # Add the results
@@ -1359,20 +1357,16 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
             adata.obs['pred_time'] = t
             adata.obsm['X_refine_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors',random_state=618, copy = True)
-            adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
+            from ..utils.utils import normalize_l2_anndata, clean_anndata
+            adata = normalize_l2_anndata(adata, layer_vu='pred_vu', layer_vs='pred_vs')
+            adata = clean_anndata(adata)
 
     model.to('cpu')
     # Save only the model's state_dict
     torch.save({
         'model_state_dict': model.state_dict(),
-    }, path + MODEL_MODE + '_GATEVelo_check_point.pth')
+    }, _checkpoint_path(path, MODEL_MODE))
     # Return the DataFrame for the current gene
     return adata
 
@@ -1615,13 +1609,6 @@ def model_training_share_neighbor_adata_ablation_MinCUT(device, device2, pyg_dat
             adata.obs['pred_clus_weight'] = weight
             adata.obsm['X_pre_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors',random_state=618, copy = True)
-            adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
         else:
             # Add the results
@@ -1638,20 +1625,13 @@ def model_training_share_neighbor_adata_ablation_MinCUT(device, device2, pyg_dat
             adata.obs['pred_time'] = t
             adata.obsm['X_refine_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors',random_state=618, copy = True)
-            adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
 
     model.to('cpu')
     # Save only the model's state_dict
     torch.save({
         'model_state_dict': model.state_dict(),
-    }, path + MODEL_MODE + '_GATEVelo_check_point.pth')
+    }, _checkpoint_path(path, MODEL_MODE))
     # Return the DataFrame for the current gene
     return adata
 
@@ -1675,7 +1655,7 @@ def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 
     pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
     pyg_data.splice = pyg_data.x[:,adata.n_vars:]
 
-    checkpoint = torch.load(path + 'whole_GATEVelo_check_point.pth',map_location=device)
+    checkpoint = torch.load(_checkpoint_path(path, 'whole'), map_location=device)
     # Filter out the 'up_regulation.type_features' parameter from the state dictionary
     state_dict = checkpoint['model_state_dict']
     state_dict = {k: v for k, v in state_dict.items() if 'up_regulation.type_features' not in k and 'up_regulation.learnable_matrix' not in k}
@@ -1721,13 +1701,6 @@ def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 
         adata.obs['pred_time'] = t
         adata.obsm['X_refine_embed'] = z_numpy
         adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-        # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-        # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-        sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-        # Calculate UMAP based on the new neighbors and store it in a new slot
-        temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors', copy = True)
-        adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-        del temp_adata
         adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
     return adata
 
@@ -1891,13 +1864,6 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
             adata.obs['pred_clus_weight'] = weight
             adata.obsm['X_pre_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors', copy = True)
-            adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
         else:
             # Add the results
@@ -1914,13 +1880,6 @@ def model_training_gene_neighbor_adata(gene_adj, device, device2, pyg_data, MODE
             adata.obs['pred_time'] = t
             adata.obsm['X_refine_embed'] = z_numpy
             adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-            # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-            # Calculate neighbors based on 'X_refine_embed' and store them in a new slot
-            sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_refine_embed', key_added='refine_embed_neighbors')
-            # Calculate UMAP based on the new neighbors and store it in a new slot
-            temp_adata = sc.tl.umap(adata, neighbors_key='refine_embed_neighbors', copy = True)
-            adata.obsm['X_umap_refine_embed'] = temp_adata.obsm['X_umap']
-            del temp_adata
             adata.obs['pred_cluster_refine'] = adata.obs['pred_cluster_refine'].astype('category')
 
     # Return the DataFrame for the current gene
@@ -2012,13 +1971,6 @@ def pretrain_mclust(device, pyg_data, adata, NUM_LOSS_NEIGH, max_n_cluster, mask
         adata.obs['pred_clus_weight'] = weight
         adata.obsm['X_pre_embed'] = z_numpy
         adata.obsm['cluster_matrix'] = c_softmax.cpu().numpy()
-        # adata.uns['coar_adj'] = coar_adj.detach().cpu().numpy()
-        # Calculate neighbors based on 'X_pre_embed' and store them in a new slot
-        sc.pp.neighbors(adata,n_neighbors=30, use_rep='X_pre_embed', key_added='pre_embed_neighbors')
-        # Calculate UMAP based on the new neighbors and store it in a new slot
-        temp_adata = sc.tl.umap(adata, neighbors_key='pre_embed_neighbors', copy = True)
-        adata.obsm['X_umap_pre_embed'] = temp_adata.obsm['X_umap']
-        del temp_adata
         adata.obs['pred_cluster'] = adata.obs['pred_cluster'].astype('category')
 
     # Return the DataFrame for the current gene

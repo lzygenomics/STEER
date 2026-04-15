@@ -2,7 +2,7 @@
 
 This page is for users whose input data does **not** yet contain `spliced` and `unspliced` layers.
 
-If your `.h5ad` file already includes these layers, you can skip preprocessing and go directly to the **Quick Start** or **Core Pipeline Notebook**.
+If your `.h5ad` file already includes these layers, you can skip preprocessing and go directly to the **Quick Start** workflow.
 
 ## Purpose
 
@@ -54,4 +54,3 @@ Choose your starting point as follows:
 Once spliced and unspliced matrices are available in your processed input object, continue with:
 
 - **Quick Start**
-- **Core Pipeline Notebook**
