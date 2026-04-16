@@ -94,7 +94,8 @@ from .utils import (
     compare_velocity_umap,
     find_pass_markers,
     preprocess_anndata_spatial,
-    preprocess_anndata_with_custom_data
+    preprocess_anndata_with_custom_data,
+    prepare_spatial_adata
 )
 
 # Explicitly define all imports for convenience
@@ -124,5 +125,5 @@ __all__ = [
     'downsample_adata_randomly', 'calculate_gene_cosine_similarity', 'cross_boundary_correctness',
     'TimeNorm', 'plot_pred_time_correlation', 'calculate_layers_cosine_similarity',
     'compare_velocity', 'cross_boundary_correctness_multiple', 'compare_velocity_multiple',
-    'compare_velocity_umap_other', 'compare_velocity_umap', 'find_pass_markers', 'preprocess_anndata_spatial','preprocess_anndata_with_custom_data'
+    'compare_velocity_umap_other', 'compare_velocity_umap', 'find_pass_markers', 'preprocess_anndata_spatial','preprocess_anndata_with_custom_data', 'prepare_spatial_adata'
 ]

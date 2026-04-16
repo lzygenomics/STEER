@@ -28,6 +28,7 @@ from ..plot import velocity_graph
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.backends.cudnn as cudnn
+from typing import Mapping, Sequence
 # cudnn.deterministic = True
 # cudnn.benchmark = True
 torch.backends.cudnn.deterministic = True
@@ -171,6 +172,87 @@ def convert_anndata(data):
     combined_df['Ms'] = combined_df['splice']
 
     return combined_df
+
+
+def prepare_spatial_adata(
+    adata,
+    required_layers: Sequence[str] = ("spliced", "unspliced"),
+    spatial_key: str = "X_spatial",
+    spatial_fallback_keys: Sequence[str] = ("spatial",),
+    force_float_layers: Sequence[str] = ("spliced", "unspliced"),
+    na_clear_keys: Sequence[str] | None = None,
+    celltype_key: str | None = None,
+    remove_celltypes: Sequence[str] | None = None,
+    obs_copy_map: Mapping[str, str] | None = None,
+    copy: bool = True,
+):
+    """
+    Standardize a spatial AnnData object before downstream preprocessing.
+
+    This helper:
+    - verifies required count layers
+    - coerces selected layers to floating-point dtype
+    - ensures ``adata.obsm[spatial_key]`` exists, optionally copied from fallback keys
+    - drops cells with missing values in selected ``obs``/``obsm`` keys
+    - optionally copies obs columns and removes selected cell types
+    """
+    if copy:
+        adata = adata.copy()
+
+    obs_copy_map = obs_copy_map or {}
+    na_clear_keys = list(na_clear_keys or [])
+    remove_celltypes = set(remove_celltypes or [])
+
+    for new_key, source_key in obs_copy_map.items():
+        if source_key not in adata.obs:
+            raise KeyError(f"obs key '{source_key}' not found for copy into '{new_key}'.")
+        adata.obs[new_key] = adata.obs[source_key]
+
+    for layer in required_layers:
+        if layer not in adata.layers:
+            raise KeyError(f"Required layer '{layer}' not found in adata.layers.")
+
+    for layer in force_float_layers:
+        if layer not in adata.layers:
+            continue
+        if issparse(adata.layers[layer]):
+            adata.layers[layer] = adata.layers[layer].astype(np.float64)
+        else:
+            adata.layers[layer] = np.asarray(adata.layers[layer], dtype=np.float64)
+
+    if spatial_key in adata.obsm:
+        spatial_source_key = spatial_key
+    else:
+        spatial_source_key = next((key for key in spatial_fallback_keys if key in adata.obsm), None)
+        if spatial_source_key is None:
+            raise KeyError(
+                f"Spatial coordinates not found. Checked '{spatial_key}' and fallbacks {tuple(spatial_fallback_keys)}."
+            )
+    adata.obsm[spatial_key] = np.asarray(adata.obsm[spatial_source_key], dtype=np.float64)
+
+    if na_clear_keys:
+        keep_mask = np.ones(adata.n_obs, dtype=bool)
+        for key in na_clear_keys:
+            if key in adata.obs:
+                keep_mask &= adata.obs[key].notna().to_numpy()
+            elif key in adata.obsm:
+                value = np.asarray(adata.obsm[key])
+                if value.ndim == 1:
+                    keep_mask &= pd.notna(value)
+                else:
+                    keep_mask &= pd.notna(value).all(axis=1)
+            else:
+                raise KeyError(f"NA-clear key '{key}' not found in adata.obs or adata.obsm.")
+        adata = adata[keep_mask].copy()
+
+    if remove_celltypes:
+        if celltype_key is None:
+            raise ValueError("celltype_key must be provided when remove_celltypes is used.")
+        if celltype_key not in adata.obs:
+            raise KeyError(f"celltype_key '{celltype_key}' not found in adata.obs.")
+        adata = adata[~adata.obs[celltype_key].isin(remove_celltypes)].copy()
+
+    return adata
 
 def adjancency_and_sequence(df, genes, NUM_AD_NEIGH):
     subset_df = df[df['gene_name'].isin(genes)]
