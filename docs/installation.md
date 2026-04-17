@@ -89,6 +89,9 @@ pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
 pip install torch-sparse -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
 pip install torch-geometric
+
+# Install STEER
+pip install git+https://github.com/lzygenomics/STEER.git
 ```
 
 ## Notes
