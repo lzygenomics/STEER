@@ -293,7 +293,10 @@ class GATModel(nn.Module):
         self.up_regulation = RegulationModel(type_features)
 
     def init_experts(self, out_features, num_clusters, num_genes):
-        self.experts = nn.ModuleList([ExpertModel(out_features, 3 * num_genes) for _ in range(num_clusters)])
+        self.experts = nn.ModuleList([
+            ExpertModel(out_features, 3 * num_genes, mode=self.expert_mode)
+            for _ in range(num_clusters)
+        ])
 
     def encode(self, x, edge_index):
         x = self.gat_conv1(x, edge_index)
@@ -1366,6 +1369,7 @@ def model_training_share_neighbor_adata(device, device2, pyg_data, MODEL_MODE, a
     # Save only the model's state_dict
     torch.save({
         'model_state_dict': model.state_dict(),
+        'expert_mode': expert_mode,
     }, _checkpoint_path(path, MODEL_MODE))
     # Return the DataFrame for the current gene
     return adata
@@ -1631,17 +1635,23 @@ def model_training_share_neighbor_adata_ablation_MinCUT(device, device2, pyg_dat
     # Save only the model's state_dict
     torch.save({
         'model_state_dict': model.state_dict(),
+        'expert_mode': expert_mode,
     }, _checkpoint_path(path, MODEL_MODE))
     # Return the DataFrame for the current gene
     return adata
 
-def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 512, latent_size = 128):
+def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 512, latent_size = 128, expert_mode=None):
     # Set random seed inside the function
     SEED = 618
     torch.manual_seed(SEED)
     # Prepare data
     pyg_data = pyg_data.to(device)
     pyg_data.x[torch.isnan(pyg_data.x)] = 0
+    checkpoint = torch.load(_checkpoint_path(path, 'whole'), map_location=device)
+    checkpoint_expert_mode = checkpoint.get('expert_mode', 'original')
+    if expert_mode is None:
+        expert_mode = checkpoint_expert_mode
+
     # Initialize the GATE model
     model = GATModel(
         in_features=pyg_data.x.shape[1],
@@ -1650,12 +1660,12 @@ def inductive_learn(device, adata, pyg_data, max_n_cluster, path, hidden_size = 
         num_clusters=max_n_cluster,
         num_genes=adata.n_vars,
         type_features=pyg_data.type_features,
-        use_experts=True
+        use_experts=True,
+        expert_mode=expert_mode,
     ).to(device)
     pyg_data.unsplice = pyg_data.x[:,:adata.n_vars]
     pyg_data.splice = pyg_data.x[:,adata.n_vars:]
 
-    checkpoint = torch.load(_checkpoint_path(path, 'whole'), map_location=device)
     # Filter out the 'up_regulation.type_features' parameter from the state dictionary
     state_dict = checkpoint['model_state_dict']
     state_dict = {k: v for k, v in state_dict.items() if 'up_regulation.type_features' not in k and 'up_regulation.learnable_matrix' not in k}
