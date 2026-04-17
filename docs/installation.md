@@ -1,8 +1,44 @@
+<div class="hero" markdown>
+
+<p class="hero-kicker">Environment Setup</p>
+
 # Installation
 
-We recommend installing STEER in a clean virtual environment, such as a `conda` environment, with **Python 3.9 or newer**.
+<p class="hero-subtitle">
+Install STEER in a clean environment with Python 3.9 or newer. Some features also depend on R and
+<code>mclust</code>. The examples below show tested configurations rather than strict version locks.
+</p>
 
-Some STEER features additionally require **R** and the `mclust` package.
+<div class="hero-actions" markdown>
+
+[Open Quick Start](quickstart.md)
+[View Source](https://github.com/lzygenomics/STEER)
+
+</div>
+
+</div>
+
+<div class="grid cards" markdown>
+
+-   :material-check-decagram-outline: **Core requirements**
+
+    ---
+
+    Python 3.9+, PyTorch, PyG, `torch-scatter`, and `torch-sparse`.
+
+-   :material-language-r: **Optional R support**
+
+    ---
+
+    Some STEER features additionally require `r-base` and `r-mclust`.
+
+-   :material-alert-circle-outline: **Compatibility rule**
+
+    ---
+
+    Match your CUDA, PyTorch, and PyG wheels carefully within the same environment.
+
+</div>
 
 ## Recommended environment
 

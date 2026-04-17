@@ -1,10 +1,22 @@
+<div class="hero" markdown>
+
+<p class="hero-kicker">Prepared Inputs</p>
+
 # Quick Start
 
-## Purpose
+<p class="hero-subtitle">
+Use this page when your data are already prepared for STEER. The recommended starting point is the
+<a href="notebooks/quickstart.ipynb">Quick Start Notebook</a>, which walks through the standard workflow on processed input data.
+</p>
 
-This page is the main entry point for running the core STEER workflow on prepared data.
+<div class="hero-actions" markdown>
 
-The recommended starting notebook is [Quick Start Notebook](notebooks/quickstart.ipynb), which presents the standard STEER workflow in a guided format.
+[Open Notebook](notebooks/quickstart.ipynb)
+[See Tutorials](tutorials/index.md)
+
+</div>
+
+</div>
 
 ## Before you begin
 
@@ -32,14 +44,37 @@ For most users, the recommended order is:
 4. Run the core STEER workflow
 5. Explore downstream velocity-related analyses
 
-## Key resources
+<div class="grid cards" markdown>
 
-The most relevant resources for this workflow are:
+-   :material-notebook-outline: **Primary notebook**
 
-- [Quick Start Notebook](notebooks/quickstart.ipynb)
-- Demo data directory: `tutorials/demo_data/`
+    ---
 
-Repository links:
+    Run the guided STEER workflow on processed inputs.
+
+    [Quick Start Notebook](notebooks/quickstart.ipynb)
+
+-   :material-database-outline: **Demo data**
+
+    ---
+
+    Browse the example files used in the tutorial workflow.
+
+    `tutorials/demo_data/`
+
+-   :material-cog-outline: **Need preprocessing?**
+
+    ---
+
+    Start here if your data do not yet contain validated `spliced` and `unspliced` layers.
+
+    [Raw Data Preprocessing](tutorials/raw-data-preprocessing.md)
+
+</div>
+
+## Repository links
+
+If you prefer to browse the original repository files:
 
 - [Open quick start notebook on GitHub](https://github.com/lzygenomics/STEER/tree/master/docs/notebooks/quickstart.ipynb)
 - [Open demo data directory on GitHub](https://github.com/lzygenomics/STEER/tree/master/tutorials/demo_data)

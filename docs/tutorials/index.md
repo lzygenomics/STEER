@@ -1,6 +1,50 @@
+<div class="hero" markdown>
+
+<p class="hero-kicker">Learning Paths</p>
+
 # Tutorials
 
-This page is a simple guide to the main STEER tutorial routes.
+<p class="hero-subtitle">
+Choose the tutorial route that matches your starting point. Use the quick start when your input data
+are already prepared, or move to preprocessing and figure-level notebooks when you need deeper workflow coverage.
+</p>
+
+<div class="hero-actions" markdown>
+
+[Open Quick Start](../quickstart.md)
+[Main Figures](main-figures.md)
+
+</div>
+
+</div>
+
+<div class="grid cards" markdown>
+
+-   :material-rocket-launch-outline: **Start fast**
+
+    ---
+
+    Use the guided quick start notebook on prepared input data.
+
+    [Quick Start Notebook](../notebooks/quickstart.ipynb)
+
+-   :material-cog-transfer-outline: **Prepare data**
+
+    ---
+
+    Generate `spliced` and `unspliced` layers from raw platform-specific data.
+
+    [Raw Data Preprocessing](raw-data-preprocessing.md)
+
+-   :material-chart-box-outline: **Reproduce figures**
+
+    ---
+
+    Follow the paper-oriented figure notebooks and analyses.
+
+    [Main Figures](main-figures.md)
+
+</div>
 
 ## Start here
 
