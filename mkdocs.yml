@@ -18,17 +18,20 @@ theme:
     - toc.integrate
   palette:
     - scheme: default
-      primary: white
+      primary: teal
       accent: teal
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - scheme: slate
-      primary: black
+      primary: teal
       accent: teal
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+
+extra_css:
+  - assets/stylesheets/extra.css
 
 plugins:
   - search

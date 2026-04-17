@@ -1,8 +1,23 @@
+<div class="hero" markdown>
+
+<p class="hero-kicker">Spatial RNA Velocity</p>
+
 # STEER
 
-**STEER: Decoupling kinetics with Spatial-Temporal Explainable Expert Model for RNA velocity inference**
+**Decoupling kinetics with a spatial-temporal explainable expert model for RNA velocity inference**
 
-**STEER** is an interpretable deep learning framework for **RNA velocity inference** that integrates **spatial-temporal information**, **graph attention**, and a **kinetically guided mixture-of-experts architecture**. It is designed to address heterogeneous kinetic regimes that are common in complex tissues and can hinder both velocity inference and interpretability.
+<p class="hero-subtitle">
+STEER is an interpretable deep learning framework that combines spatial context, graph attention, and kinetically guided mixture-of-experts modeling to resolve heterogeneous RNA velocity dynamics in complex tissues.
+</p>
+
+<div class="hero-actions" markdown>
+
+[Open Quick Start](quickstart.md)
+[Browse Tutorials](tutorials/index.md)
+
+</div>
+
+</div>
 
 <div class="grid cards" markdown>
 
@@ -57,7 +72,11 @@ By assigning cells to expert-defined kinetic regimes, STEER helps disentangle ki
 
 STEER integrates cellular-context learning with kinetic-systems-aware modeling. The method figure below summarizes the overall workflow, including graph construction, graph attention auto-encoding, kinetic regime decomposition, expert-specific parameter inference, and downstream spatio-temporal analysis.
 
+<div class="figure-frame" markdown>
+
 ![STEER method overview](assets/figure1_github.png)
+
+</div>
 
 ## Key Features
 
