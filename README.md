@@ -1,10 +1,8 @@
-## Documentation
-
-For installation, tutorials, notebooks, and figure-related analyses, please visit the STEER documentation site:
-
-[STEER Documentation](https://steer.readthedocs.io/en/latest/)
-
 # STEER: A graph attention based Spatial-Temporal Explainable Expert model for RNA velocity inference
+
+> [!IMPORTANT]
+> 🚀 **Documentation:** https://steer.readthedocs.io/en/latest/  
+> 📘 The documentation site is actively being updated with tutorials, notebooks, and figure-related analyses.
 
 STEER is a deep learning framework that leverages spatial-temporal gene expression information and graph attention mechanisms to perform interpretable RNA velocity inference. It supports a variety of modules for training, visualization, prior construction, and utilities tailored to single-cell and spatial dynamics.
 
@@ -46,6 +44,7 @@ pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url [http
 pip install torch-scatter -f [https://data.pyg.org/whl/torch-2.8.0+cu128.html](https://data.pyg.org/whl/torch-2.8.0+cu128.html)
 pip install torch-sparse -f [https://data.pyg.org/whl/torch-2.8.0+cu128.html](https://data.pyg.org/whl/torch-2.8.0+cu128.html)
 pip install torch-geometric
+pip install git+[https://github.com/lzygenomics/STEER.git](https://github.com/lzygenomics/STEER.git)
 
 ```
 
