@@ -44,6 +44,8 @@ For most users, the recommended order is:
 4. Run the core STEER workflow
 5. Explore downstream velocity-related analyses
 
+If you want to see the same core workflow on a real spatial dataset rather than the demo-style quick start example, you can also open the [Spatial Mouse Placentation Run](notebooks/run_Spatial_MousePlacentation.ipynb). This notebook provides a compact end-to-end run on an actual mouse placentation dataset.
+
 <div class="grid cards" markdown>
 
 -   :material-notebook-outline: **Primary notebook**
@@ -53,6 +55,14 @@ For most users, the recommended order is:
     Run the guided STEER workflow on processed inputs.
 
     [Quick Start Notebook](notebooks/quickstart.ipynb)
+
+-   :material-map-marker-path: **Real data example**
+
+    ---
+
+    See the workflow on an actual spatial mouse placentation dataset.
+
+    [Spatial Mouse Placentation Run](notebooks/run_Spatial_MousePlacentation.ipynb)
 
 -   :material-database-outline: **Demo data**
 
@@ -77,12 +87,14 @@ For most users, the recommended order is:
 If you prefer to browse the original repository files:
 
 - [Open quick start notebook on GitHub](https://github.com/lzygenomics/STEER/tree/master/docs/notebooks/quickstart.ipynb)
+- [Open Spatial Mouse Placentation notebook on GitHub](https://github.com/lzygenomics/STEER/blob/master/docs/notebooks/run_Spatial_MousePlacentation.ipynb)
 - [Open demo data directory on GitHub](https://github.com/lzygenomics/STEER/tree/master/tutorials/demo_data)
 
 ## Next steps
 
 After completing the quick start, you can continue with:
 
+- [Spatial Mouse Placentation Run](notebooks/run_Spatial_MousePlacentation.ipynb) for a real-data spatial example
 - [Main Figures](tutorials/main-figures.md) for paper-oriented analyses
 - [Raw Data Preprocessing](tutorials/raw-data-preprocessing.md) if your data does not yet include spliced/unspliced layers
 - [Citation](citation.md) if you are preparing a manuscript or presentation
