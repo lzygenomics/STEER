@@ -62,11 +62,11 @@ nav:
   - Tutorials:
       - Overview: tutorials/index.md
       - Quick Start Notebook: notebooks/quickstart.ipynb
+      - Spatial Mouse Placentation Run: notebooks/run_Spatial_MousePlacentation.ipynb
       - Main Figures: tutorials/main-figures.md
       - Figure 2 Notebook: notebooks/Figure2.ipynb
       - Figure 3 Notebook: notebooks/Figure3.ipynb
       - Figure 4 Notebook: notebooks/Figure4.ipynb
-      - Spatial Mouse Placentation Run: notebooks/run_Spatial_MousePlacentation.ipynb
       - Figure 5 Notebook: notebooks/Figure5.ipynb
       - Raw Data Preprocessing: tutorials/raw-data-preprocessing.md
   - Citation: citation.md
