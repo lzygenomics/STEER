@@ -63,6 +63,7 @@ nav:
       - Overview: tutorials/index.md
       - Quick Start Notebook: notebooks/quickstart.ipynb
       - Spatial Mouse Placentation Run: notebooks/run_Spatial_MousePlacentation.ipynb
+      - scRNA Mouse Erythroid Run: notebooks/run_scRNA_Erythorid_slim.ipynb
       - Main Figures: tutorials/main-figures.md
       - Figure 2 Notebook: notebooks/Figure2.ipynb
       - Figure 3 Notebook: notebooks/Figure3.ipynb
